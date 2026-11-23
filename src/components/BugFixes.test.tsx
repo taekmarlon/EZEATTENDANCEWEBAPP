@@ -56,7 +56,7 @@ describe('UI bug fixes & school logo features', () => {
     expect(screen.getByRole('img', { name: /Alice/i })).toBeInTheDocument();
   });
 
-  it('RosterView resets inline teacher draft editor when switching specializations', () => {
+  it('RosterView omits inline Assign Teacher button, exposes Import CSV, and updates banner on specialization change', () => {
     const specA: Specialization = {
       id: 'spec-a',
       name: 'Music',
@@ -85,8 +85,10 @@ describe('UI bug fixes & school logo features', () => {
       </ToastProvider>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Edit Teacher/i }));
-    expect(screen.getByDisplayValue('Teacher A')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Assign Teacher & Photo/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Edit Teacher/i })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /Import CSV/i }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Teacher A')).toBeInTheDocument();
 
     rerender(
       <ToastProvider>
@@ -96,7 +98,6 @@ describe('UI bug fixes & school logo features', () => {
       </ToastProvider>
     );
 
-    expect(screen.queryByDisplayValue('Teacher A')).toBeNull();
     expect(screen.getByText('Teacher B')).toBeInTheDocument();
   });
 
@@ -221,7 +222,7 @@ describe('UI bug fixes & school logo features', () => {
     expect(screen.getByText('Edit School & Logo')).toBeInTheDocument();
   });
 
-  it('StudentFormModal omits Teacher Name input and preserves defaultTeacherName on submit', () => {
+  it('StudentFormModal omits Teacher Picture/Name inputs and allows submitting without Roll/ID No.', () => {
     const onSave = vi.fn();
     render(
       <ToastProvider>
@@ -238,19 +239,19 @@ describe('UI bug fixes & school logo features', () => {
     );
 
     expect(screen.queryByText(/^Teacher Name$/i)).toBeNull();
+    expect(screen.queryByText(/Teacher Picture/i)).toBeNull();
 
     fireEvent.change(screen.getByPlaceholderText(/Maria Santos/i), {
       target: { value: 'Juan Dela Cruz' },
     });
-    fireEvent.change(screen.getByPlaceholderText(/EZ-2026-001/i), {
-      target: { value: 'EZ-2026-009' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /^Add Student$/i }));
+    const addBtn = screen.getByRole('button', { name: /^Add Student$/i });
+    expect(addBtn).toBeEnabled();
+    fireEvent.click(addBtn);
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Juan Dela Cruz',
-        rollNo: 'EZ-2026-009',
+        rollNo: '',
         teacherName: 'Marlon Manalili',
       })
     );

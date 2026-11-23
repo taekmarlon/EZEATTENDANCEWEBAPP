@@ -6,6 +6,8 @@ import {
   AlertCircle,
   Loader2,
   Database,
+  Mail,
+  Lock,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -74,17 +76,17 @@ export default function LoginView() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-violet-50/50 to-indigo-50/40 flex flex-col items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md bg-white border border-slate-200/90 rounded-2xl shadow-lg overflow-hidden">
         {/* Brand Header */}
-        <div className="bg-violet-700 px-6 py-5 text-white flex items-center justify-between gap-3">
+        <div className="bg-gradient-to-r from-violet-700 via-violet-600 to-indigo-600 px-6 py-5 text-white flex items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-extrabold tracking-tight">EZ Center Portal</h1>
             <p className="text-xs text-violet-100 mt-0.5">
               Supabase Cloud Attendance, Rubrics &amp; Reports
             </p>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
             <Database size={18} />
           </div>
         </div>
@@ -152,9 +154,10 @@ export default function LoginView() {
             <div>
               <label
                 htmlFor="login-email"
-                className="block text-xs font-semibold text-slate-700 mb-1.5"
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5"
               >
-                Email Address
+                <Mail size={13} className="text-violet-600" />
+                <span>Email Address</span>
               </label>
               <input
                 id="login-email"
@@ -164,16 +167,17 @@ export default function LoginView() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@school.edu"
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>
 
             <div>
               <label
                 htmlFor="login-password"
-                className="block text-xs font-semibold text-slate-700 mb-1.5"
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5"
               >
-                Password
+                <Lock size={13} className="text-violet-600" />
+                <span>Password</span>
               </label>
               <input
                 id="login-password"
@@ -184,7 +188,7 @@ export default function LoginView() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>
 

@@ -82,9 +82,13 @@ export default function AttendanceModal({
               {student.name}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
-              <span className="font-mono tabular-nums">ID {student.rollNo}</span>
-              {student.gradeLevel ? ` · ${student.gradeLevel}` : ''}
-              {teacherLabel ? ` · ${teacherLabel}` : ''}
+              {[
+                student.rollNo ? `ID ${student.rollNo}` : null,
+                student.gradeLevel || null,
+                teacherLabel || null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Enrolled Student'}
             </p>
           </div>
           <button

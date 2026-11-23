@@ -1,4 +1,4 @@
-import { useState, useRef, ChangeEvent, FormEvent } from 'react';
+import { useState, useRef, useMemo, ChangeEvent, FormEvent } from 'react';
 import {
   Users,
   Sliders,
@@ -13,6 +13,13 @@ import {
   RefreshCw,
   Search,
   KeyRound,
+  Camera,
+  UserCog,
+  ShieldCheck,
+  Mail,
+  Lock,
+  User,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
@@ -30,6 +37,7 @@ import {
 import { createWorkspaceBackupJson, parseWorkspaceBackupJson } from '../utils/backup';
 import { downloadTextFile } from '../utils/export';
 import { loadPersistedSchools } from '../utils/storage';
+import { PortraitAvatar, PhotoUploader } from './Avatar';
 import ConfirmModal from './ConfirmModal';
 import AdminDirectoryPanel from './AdminDirectoryPanel';
 
@@ -233,11 +241,15 @@ export default function AdminConfigView() {
   const [newAssignments, setNewAssignments] = useState<TeacherAssignment[]>([]);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
-  // Edit user access & Admin password reset state
+  // Registered Users filter & Edit modal state
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | UserRole>('all');
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
+  const [userEditMode, setUserEditMode] = useState<'profile' | 'access'>('access');
   const [draftRole, setDraftRole] = useState<UserRole>('teacher');
   const [draftActive, setDraftActive] = useState(true);
   const [draftName, setDraftName] = useState('');
+  const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | undefined>(undefined);
   const [draftAssignments, setDraftAssignments] = useState<TeacherAssignment[]>([]);
   const [isSavingUser, setIsSavingUser] = useState(false);
   const [resetNewPassword, setResetNewPassword] = useState('');
@@ -254,12 +266,27 @@ export default function AdminConfigView() {
   const [isImporting, setIsImporting] = useState(false);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
 
-  const openUserEditor = (user: ManagedUser) => {
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    return managedUsers.filter((u) => {
+      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+      if (!q) return true;
+      return (
+        u.fullName.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.role.toLowerCase().includes(q)
+      );
+    });
+  }, [managedUsers, userSearch, userRoleFilter]);
+
+  const openUserEditor = (user: ManagedUser, mode: 'profile' | 'access' = 'access') => {
     setShowCreateUser(false);
     setEditingUser(user);
+    setUserEditMode(mode);
     setDraftRole(user.role);
     setDraftActive(user.isActive);
     setDraftName(user.fullName);
+    setDraftAvatarUrl(user.avatarUrl);
     setDraftAssignments(user.assignments);
     setResetNewPassword('');
     setResetConfirmPassword('');
@@ -354,6 +381,10 @@ export default function AdminConfigView() {
 
   const handleSaveUserAccess = async () => {
     if (!editingUser) return;
+    if (!draftName.trim()) {
+      showToast('Full Name cannot be empty.', 'error');
+      return;
+    }
     setIsSavingUser(true);
     try {
       await updateManagedUserAccess({
@@ -361,12 +392,17 @@ export default function AdminConfigView() {
         role: draftRole,
         isActive: draftActive,
         fullName: draftName,
+        avatarUrl: draftAvatarUrl ?? null,
         assignments: draftRole === 'teacher' ? draftAssignments : [],
       });
-      showToast(`Updated role and school/specialization access for ${editingUser.email}.`);
+      showToast(
+        userEditMode === 'profile'
+          ? `Updated profile & photo for ${draftName.trim()}.`
+          : `Updated role and school/specialization access for ${editingUser.email}.`
+      );
       setEditingUser(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to update user access.', 'error');
+      showToast(err instanceof Error ? err.message : 'Failed to update user.', 'error');
     } finally {
       setIsSavingUser(false);
     }
@@ -439,20 +475,24 @@ export default function AdminConfigView() {
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Admin Configuration &amp; Governance
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Manage Teacher/Director/Admin accounts, assign specific schools &amp; specializations,
-            customize grading scales, and review audit logs.
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              Admin Configuration &amp; Governance
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Manage Teacher/Director/Admin accounts, teacher profile photos, permissions, and audit logs.
+            </p>
+          </div>
         </div>
 
         <button
           type="button"
           onClick={() => void refreshWorkspace()}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 shadow-2xs"
         >
           <RefreshCw size={13} /> Sync Now
         </button>
@@ -491,13 +531,18 @@ export default function AdminConfigView() {
         <div className="space-y-5">
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Registered Users ({managedUsers.length})
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Teachers can only access the exact schools and specializations assigned here.
-                </p>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+                  <Users size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Registered Users ({managedUsers.length})
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Edit teacher names/photos and manage school &amp; specialization access.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -505,10 +550,45 @@ export default function AdminConfigView() {
                   setEditingUser(null);
                   setShowCreateUser((v) => !v);
                 }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 text-white rounded-xl text-xs font-semibold hover:bg-violet-700 shadow-xs transition-colors"
               >
                 <UserPlus size={14} /> Add User Account
               </button>
+            </div>
+
+            {/* Search & Role Filter inside Registered Users */}
+            <div className="px-5 py-3 bg-slate-50/70 border-b border-slate-200 flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Filter users by name or email..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-violet-500"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(['all', 'teacher', 'director', 'admin'] as const).map((roleKey) => (
+                  <button
+                    key={roleKey}
+                    type="button"
+                    onClick={() => setUserRoleFilter(roleKey)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                      userRoleFilter === roleKey
+                        ? 'bg-violet-600 text-white border-violet-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {roleKey === 'all'
+                      ? 'All'
+                      : roleKey.charAt(0).toUpperCase() + roleKey.slice(1) + 's'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {showCreateUser && (
@@ -633,223 +713,309 @@ export default function AdminConfigView() {
             )}
 
             <div className="divide-y divide-slate-100">
-              {managedUsers.map((user) => {
-                const assignmentSummary =
-                  user.role === 'teacher'
-                    ? summarizeTeacherAssignments(user.assignments, schools)
-                    : [];
-                return (
-                  <div
-                    key={user.id}
-                    className="px-5 py-4 flex flex-wrap items-center justify-between gap-4 hover:bg-slate-50/70"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900">{user.fullName}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            user.role === 'admin'
-                              ? 'bg-violet-100 text-violet-800'
-                              : user.role === 'director'
-                              ? 'bg-sky-100 text-sky-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {user.role}
-                        </span>
-                        {!user.isActive && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
-                            Inactive
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">{user.email}</div>
-                      {user.role === 'teacher' && (
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {assignmentSummary.length === 0 ? (
-                            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                              No schools or specializations assigned yet
+              {filteredUsers.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">
+                  No matching registered users found.
+                </div>
+              ) : (
+                filteredUsers.map((user) => {
+                  const assignmentSummary =
+                    user.role === 'teacher'
+                      ? summarizeTeacherAssignments(user.assignments, schools)
+                      : [];
+                  return (
+                    <div
+                      key={user.id}
+                      className="px-5 py-4 flex flex-wrap items-center justify-between gap-4 hover:bg-violet-50/25 transition-colors"
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <PortraitAvatar
+                          src={user.avatarUrl}
+                          name={user.fullName}
+                          size="md"
+                          tone={user.role === 'director' ? 'slate' : 'violet'}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold text-slate-900">
+                              {user.fullName}
                             </span>
-                          ) : (
-                            assignmentSummary.map((group) => (
-                              <span
-                                key={group.schoolId}
-                                className="text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md"
-                              >
-                                {group.schoolName}: {group.labels.join(', ')}
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                user.role === 'admin'
+                                  ? 'bg-violet-100 text-violet-800'
+                                  : user.role === 'director'
+                                  ? 'bg-sky-100 text-sky-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {user.role}
+                            </span>
+                            {!user.isActive && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                                Inactive
                               </span>
-                            ))
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                            <Mail size={11} className="text-slate-400 shrink-0" />
+                            <span>{user.email}</span>
+                          </div>
+                          {user.role === 'teacher' && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {assignmentSummary.length === 0 ? (
+                                <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                                  No schools or specializations assigned yet
+                                </span>
+                              ) : (
+                                assignmentSummary.map((group) => (
+                                  <span
+                                    key={group.schoolId}
+                                    className="text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md"
+                                  >
+                                    {group.schoolName}: {group.labels.join(', ')}
+                                  </span>
+                                ))
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openUserEditor(user)}
-                        className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        Configure Role &amp; Access
-                      </button>
-                      {auth?.profile?.id !== user.id && (
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => setDeletingUser(user)}
-                          aria-label={`Delete user ${user.email}`}
-                          title="Delete User Account"
-                          className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                          onClick={() => openUserEditor(user, 'profile')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 rounded-lg text-xs font-semibold text-violet-800 hover:bg-violet-100/80 transition-colors"
                         >
-                          <Trash2 size={14} />
+                          <Camera size={13} /> Edit Name &amp; Photo
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => openUserEditor(user, 'access')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <ShieldCheck size={13} /> Configure Role &amp; Access
+                        </button>
+                        {auth?.profile?.id !== user.id && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingUser(user)}
+                            aria-label={`Delete user ${user.email}`}
+                            title="Delete User Account"
+                            className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
           {editingUser && (
-            <div className="bg-white border border-violet-200 rounded-xl p-6 space-y-5 shadow-xs">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Edit Access: {editingUser.email}
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Update role, active status, and assigned school specializations.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingUser(null)}
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={draftName}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Role</label>
-                  <select
-                    value={draftRole}
-                    onChange={(e) => setDraftRole(e.target.value as UserRole)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
-                  >
-                    <option value="teacher">Teacher</option>
-                    <option value="director">Director</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div className="flex items-end pb-1.5">
-                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={draftActive}
-                      onChange={(e) => setDraftActive(e.target.checked)}
-                      className="rounded border-slate-300 text-violet-600"
-                    />
-                    Account Active
-                  </label>
-                </div>
-              </div>
-
-              {draftRole === 'teacher' && (
-                <TeacherAssignmentMatrix
-                  title="Assigned Schools & Specializations (Teacher Scope — 2+ Supported)"
-                  schools={schools}
-                  assignments={draftAssignments}
-                  onToggleSchoolWide={toggleSchoolWideAssignment}
-                  onToggleSpec={toggleSpecAssignment}
-                />
-              )}
-
-              {/* Admin Direct Password Reset */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound size={14} className="text-violet-600" />
-                  <h5 className="text-xs font-bold text-slate-900">
-                    Admin Password Reset ({editingUser.email})
-                  </h5>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Supabase hashes passwords one-way; set a new login password below to immediately
-                  override access (requires deployed admin-users Edge Function).
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
-                  <div>
-                    <label
-                      htmlFor="admin-reset-new-password"
-                      className="block text-[11px] font-semibold text-slate-600 mb-1"
-                    >
-                      New Password (min 8)
-                    </label>
-                    <input
-                      id="admin-reset-new-password"
-                      type="password"
-                      minLength={8}
-                      value={resetNewPassword}
-                      onChange={(e) => setResetNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="admin-reset-confirm-password"
-                      className="block text-[11px] font-semibold text-slate-600 mb-1"
-                    >
-                      Confirm New Password
-                    </label>
-                    <input
-                      id="admin-reset-confirm-password"
-                      type="password"
-                      minLength={8}
-                      value={resetConfirmPassword}
-                      onChange={(e) => setResetConfirmPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
-                    />
+            <div
+              className="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
+              onClick={() => !isSavingUser && setEditingUser(null)}
+            >
+              <div
+                className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-violet-50/80 via-white to-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+                      {userEditMode === 'profile' ? <Camera size={17} /> : <UserCog size={17} />}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        {userEditMode === 'profile'
+                          ? `Edit Name & Profile Photo: ${editingUser.fullName}`
+                          : `Configure Access & Security: ${editingUser.email}`}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        {userEditMode === 'profile'
+                          ? 'Update display name and portrait image shown in roster & scorecards.'
+                          : 'Update profile photo, role, active status, assignments, and password.'}
+                      </p>
+                    </div>
                   </div>
                   <button
                     type="button"
-                    disabled={isResettingPassword || !resetNewPassword}
-                    onClick={handleAdminResetPassword}
-                    className="px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 disabled:opacity-50"
+                    onClick={() => setEditingUser(null)}
+                    aria-label="Close user editor"
+                    className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-1.5 transition-colors"
                   >
-                    {isResettingPassword ? 'Resetting...' : 'Reset User Password'}
+                    <X size={18} />
                   </button>
                 </div>
-              </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingUser(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={isSavingUser}
-                  onClick={handleSaveUserAccess}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50"
-                >
-                  <Check size={14} /> {isSavingUser ? 'Saving...' : 'Save Access'}
-                </button>
+                <div className="p-6 overflow-y-auto space-y-5">
+                  {/* Profile Photo & Full Name (always shown for both modes) */}
+                  <div className="p-4 bg-slate-50/80 border border-slate-200 rounded-xl space-y-4">
+                    <PhotoUploader
+                      label="Profile Photo"
+                      nameForFallback={draftName || editingUser.email}
+                      value={draftAvatarUrl}
+                      onChange={setDraftAvatarUrl}
+                      size="lg"
+                    />
+
+                    <div
+                      className={
+                        userEditMode === 'access'
+                          ? 'grid grid-cols-1 sm:grid-cols-3 gap-4'
+                          : 'space-y-3'
+                      }
+                    >
+                      <div>
+                        <label
+                          htmlFor="admin-edit-user-fullname"
+                          className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1"
+                        >
+                          <User size={12} className="text-violet-600" /> Full Name
+                        </label>
+                        <input
+                          id="admin-edit-user-fullname"
+                          type="text"
+                          value={draftName}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
+                      </div>
+
+                      {userEditMode === 'access' && (
+                        <>
+                          <div>
+                            <label
+                              htmlFor="admin-edit-user-role"
+                              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1"
+                            >
+                              <ShieldCheck size={12} className="text-slate-400" /> Role
+                            </label>
+                            <select
+                              id="admin-edit-user-role"
+                              value={draftRole}
+                              onChange={(e) => setDraftRole(e.target.value as UserRole)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                            >
+                              <option value="teacher">Teacher</option>
+                              <option value="director">Director</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </div>
+                          <div className="flex items-end pb-1.5">
+                            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={draftActive}
+                                onChange={(e) => setDraftActive(e.target.checked)}
+                                className="rounded border-slate-300 text-violet-600"
+                              />
+                              Account Active
+                            </label>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {userEditMode === 'access' && draftRole === 'teacher' && (
+                    <TeacherAssignmentMatrix
+                      title="Assigned Schools & Specializations (Teacher Scope — 2+ Supported)"
+                      schools={schools}
+                      assignments={draftAssignments}
+                      onToggleSchoolWide={toggleSchoolWideAssignment}
+                      onToggleSpec={toggleSpecAssignment}
+                    />
+                  )}
+
+                  {userEditMode === 'access' && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Lock size={14} className="text-violet-600" />
+                        <h5 className="text-xs font-bold text-slate-900">
+                          Admin Password Reset ({editingUser.email})
+                        </h5>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Set a new login password below to immediately override access (requires
+                        deployed admin-users Edge Function).
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+                        <div>
+                          <label
+                            htmlFor="admin-reset-new-password"
+                            className="block text-[11px] font-semibold text-slate-600 mb-1"
+                          >
+                            New Password (min 8)
+                          </label>
+                          <input
+                            id="admin-reset-new-password"
+                            type="password"
+                            minLength={8}
+                            value={resetNewPassword}
+                            onChange={(e) => setResetNewPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="admin-reset-confirm-password"
+                            className="block text-[11px] font-semibold text-slate-600 mb-1"
+                          >
+                            Confirm New Password
+                          </label>
+                          <input
+                            id="admin-reset-confirm-password"
+                            type="password"
+                            minLength={8}
+                            value={resetConfirmPassword}
+                            onChange={(e) => setResetConfirmPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isResettingPassword || !resetNewPassword}
+                          onClick={handleAdminResetPassword}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          <KeyRound size={13} />
+                          {isResettingPassword ? 'Resetting...' : 'Reset User Password'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/70 flex justify-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isSavingUser}
+                    onClick={() => setEditingUser(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingUser || !draftName.trim()}
+                    onClick={handleSaveUserAccess}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50 shadow-xs"
+                  >
+                    <Check size={14} />
+                    {isSavingUser
+                      ? 'Saving...'
+                      : userEditMode === 'profile'
+                      ? 'Save Profile & Photo'
+                      : 'Save Access'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

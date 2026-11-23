@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, UserCheck, Users, X, Plus } from 'lucide-react';
+import { Search, UserCheck, Users, X, Plus, Building2 } from 'lucide-react';
 import { useStore } from '../store';
 import { useToast } from '../context/ToastContext';
 import { ManagedUser, School, Specialization } from '../types';
@@ -171,17 +171,22 @@ export default function TeacherRosterView() {
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6 pb-12">
-      <div>
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-          Teacher Roster &amp; Co-Teaching Assignments
-        </h2>
-        <p className="text-xs text-slate-500 mt-0.5">
-          View all teachers, assigned schools &amp; specializations, and assign up to 2 co-teachers per specialization.
-        </p>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+          <UserCheck size={20} />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+            Teacher Roster &amp; Co-Teaching Assignments
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            View all teachers, assigned schools &amp; specializations, and assign up to 2 co-teachers per specialization.
+          </p>
+        </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
+      <div className="bg-white border border-slate-200/90 rounded-2xl shadow-2xs p-4 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[220px]">
           <Search
             size={15}
@@ -237,8 +242,9 @@ export default function TeacherRosterView() {
           <div className="divide-y divide-slate-100">
             {filteredSchools.map((school) => (
               <div key={school.id} className="p-5 space-y-3">
-                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
-                  {school.name}
+                <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-600">
+                  <Building2 size={13} className="text-violet-600" />
+                  <span>{school.name}</span>
                 </div>
                 {school.specializations.length === 0 ? (
                   <p className="text-xs text-slate-400">No specializations added yet.</p>
@@ -296,8 +302,15 @@ export default function TeacherRosterView() {
                               assignedCoTeachers.map((ct) => (
                                 <span
                                   key={ct.id}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
+                                  className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
                                 >
+                                  <PortraitAvatar
+                                    src={ct.avatarUrl}
+                                    name={ct.fullName}
+                                    size="xs"
+                                    tone="violet"
+                                    className="!w-5 !h-5 !text-[9px] rounded"
+                                  />
                                   <span>{ct.fullName}</span>
                                   {permissions.canAssignTeachersToSpecializations && (
                                     <button

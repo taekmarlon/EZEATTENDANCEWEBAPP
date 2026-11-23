@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Loader2,
   Menu,
-  Users,
+  CalendarCheck,
   UserCheck,
   ClipboardCheck,
   BarChart3,
@@ -11,7 +11,8 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
-  KeyRound,
+  Search,
+  UserCog,
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import RosterView from './RosterView';
@@ -21,6 +22,7 @@ import ReportsView from './ReportsView';
 import QueryBuilderView from './QueryBuilderView';
 import AdminConfigView from './AdminConfigView';
 import AccountPasswordModal from './AccountPasswordModal';
+import GlobalSearchModal from './GlobalSearchModal';
 import OfflineBanner from './OfflineBanner';
 import PWAInstallButton from './PWAInstallButton';
 import { PortraitAvatar } from './Avatar';
@@ -32,9 +34,9 @@ const BASE_TABS: {
   id: WorkspaceTab;
   label: string;
   mobileLabel: string;
-  icon: typeof Users;
+  icon: typeof CalendarCheck;
 }[] = [
-  { id: 'roster', label: 'Attendance', mobileLabel: 'Roster', icon: Users },
+  { id: 'roster', label: 'Attendance', mobileLabel: 'Roster', icon: CalendarCheck },
   { id: 'rubrics', label: 'Rubrics', mobileLabel: 'Rubrics', icon: ClipboardCheck },
   { id: 'teachers', label: 'Teachers', mobileLabel: 'Teachers', icon: UserCheck },
   { id: 'reports', label: 'Reports', mobileLabel: 'Reports', icon: BarChart3 },
@@ -43,14 +45,22 @@ const BASE_TABS: {
 ];
 
 export default function MainLayout() {
-  const { schools, systemSettings, permissions, isLoadingData, refreshWorkspace } = useStore();
+  const {
+    schools,
+    managedUsers,
+    systemSettings,
+    permissions,
+    isLoadingData,
+    refreshWorkspace,
+  } = useStore();
   const { profile, signOut } = useAuth();
 
   const [activeSchoolId, setActiveSchoolId] = useState<string | null>(null);
   const [activeSpecId, setActiveSpecId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('roster');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
 
   const visibleTabs = useMemo(
     () =>
@@ -70,6 +80,18 @@ export default function MainLayout() {
       setActiveTab('roster');
     }
   }, [activeTab, permissions.canAccessAdminConsole, permissions.canViewTeacherRoster]);
+
+  useEffect(() => {
+    if (!permissions.canViewAllSchoolsAndReports) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [permissions.canViewAllSchoolsAndReports]);
 
   useEffect(() => {
     if (schools.length > 0 && !activeSchoolId) {
@@ -101,7 +123,7 @@ export default function MainLayout() {
     : 'Teacher';
 
   return (
-    <div className="flex h-[100dvh] bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-[100dvh] bg-gradient-to-br from-slate-50 via-violet-50/35 to-indigo-50/30 text-slate-900 font-sans overflow-hidden">
       <Sidebar
         activeSchoolId={activeSchoolId}
         setActiveSchoolId={setActiveSchoolId}
@@ -115,7 +137,7 @@ export default function MainLayout() {
         className="flex-1 flex flex-col overflow-hidden min-w-0"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <header className="no-print h-14 lg:h-16 bg-white border-b border-slate-200 flex items-center justify-between gap-3 lg:gap-6 px-3 sm:px-6 shrink-0 z-10">
+        <header className="no-print h-14 lg:h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)] flex items-center justify-between gap-2 lg:gap-4 px-3 sm:px-5 shrink-0 z-10">
           {/* Zone 1: Mobile Drawer Trigger + School Breadcrumb */}
           <div className="min-w-0 flex items-center gap-2 text-xs font-medium text-slate-500">
             <button
@@ -137,8 +159,8 @@ export default function MainLayout() {
                   className="hidden sm:flex font-mono"
                 />
               )}
-              <div className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:gap-2 leading-tight">
-                <span className="truncate font-bold text-slate-900 max-w-[160px] sm:max-w-[200px]">
+              <div className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:gap-1.5 leading-tight">
+                <span className="truncate font-bold text-slate-900 max-w-[125px] sm:max-w-[130px] xl:max-w-[180px]">
                   {activeSchool ? activeSchool.name : systemSettings.portalName}
                 </span>
                 {activeSpec && (
@@ -146,7 +168,7 @@ export default function MainLayout() {
                     <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
                       /
                     </span>
-                    <span className="truncate text-[11px] sm:text-xs text-slate-500 sm:text-slate-600 max-w-[160px]">
+                    <span className="truncate text-[11px] sm:text-xs font-semibold text-violet-700 max-w-[120px] xl:max-w-[150px]">
                       {activeSpec.name}
                     </span>
                   </>
@@ -155,9 +177,13 @@ export default function MainLayout() {
             </div>
           </div>
 
-          {/* Zone 2: Desktop Navigation Tabs */}
-          <nav className="hidden lg:flex items-center gap-1 overflow-x-auto">
+          {/* Zone 2: Desktop Navigation Tabs with Icons */}
+          <nav
+            aria-label="Workspace tabs"
+            className="hidden lg:flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/70 shrink-0"
+          >
             {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
@@ -166,48 +192,62 @@ export default function MainLayout() {
                   onClick={() => setActiveTab(tab.id)}
                   style={
                     isActive
-                      ? { borderColor: systemSettings.primaryColor, color: systemSettings.primaryColor }
+                      ? { color: systemSettings.primaryColor }
                       : undefined
                   }
-                  className={`px-3 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
                     isActive
-                      ? 'border-violet-600 text-violet-700'
-                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                      ? 'bg-white text-violet-700 shadow-xs border border-slate-200/80'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60 border border-transparent'
                   }`}
                 >
-                  {tab.label}
+                  <Icon size={14} aria-hidden="true" />
+                  <span>{tab.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          {/* Zone 3: Role Profile, Password Settings & Sign-Out */}
+          {/* Zone 3: Global Search (Admin/Director), Refresh, My Profile & Sign Out */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {permissions.canViewAllSchoolsAndReports && (
+              <button
+                type="button"
+                onClick={() => setShowGlobalSearch(true)}
+                title="Global Search across Schools, Teachers & Students (Ctrl+K)"
+                aria-label="Open global search"
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100/80 transition-colors text-xs font-semibold shrink-0"
+              >
+                <Search size={14} aria-hidden="true" />
+                <span className="hidden xl:inline">Search</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => void refreshWorkspace()}
               title="Refresh from Supabase"
               aria-label="Refresh data"
-              className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             >
               <RefreshCw size={15} className={isLoadingData ? 'animate-spin' : ''} />
             </button>
 
             <button
               type="button"
-              onClick={() => setShowPasswordModal(true)}
-              title="Account & Password Settings"
-              aria-label="Change password"
-              className="sm:hidden p-2 rounded-lg text-slate-500 hover:text-violet-700 hover:bg-violet-50 transition-colors"
+              onClick={() => setShowProfileModal(true)}
+              title="My Profile & Password Settings"
+              aria-label="My Profile"
+              className="sm:hidden p-2 rounded-xl text-violet-700 bg-violet-50 border border-violet-200 hover:bg-violet-100 transition-colors"
             >
-              <KeyRound size={15} />
+              <UserCog size={15} />
             </button>
 
             <button
               type="button"
-              onClick={() => setShowPasswordModal(true)}
-              title="Click to update your account password"
-              className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 hover:border-violet-300 hover:bg-violet-50/40 transition-colors text-left"
+              onClick={() => setShowProfileModal(true)}
+              title="Click to edit your profile, photo, or password"
+              className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-white border border-slate-200 hover:border-violet-300 hover:bg-violet-50/40 transition-colors text-left shadow-2xs"
             >
               <PortraitAvatar
                 src={profile?.avatarUrl}
@@ -216,11 +256,11 @@ export default function MainLayout() {
                 tone="violet"
               />
               <div className="leading-tight">
-                <div className="text-[11px] font-bold text-slate-800 max-w-[120px] truncate">
+                <div className="text-[11px] font-bold text-slate-800 max-w-[110px] truncate">
                   {profile?.fullName || profile?.email}
                 </div>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-                  {roleBadgeLabel}
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 flex items-center gap-1">
+                  <span>{profile?.role === 'teacher' ? 'My Profile' : roleBadgeLabel}</span>
                 </div>
               </div>
             </button>
@@ -230,10 +270,10 @@ export default function MainLayout() {
               onClick={() => void signOut()}
               aria-label="Sign out"
               title="Sign out"
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:text-rose-600 hover:border-rose-200 transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50/40 transition-colors"
             >
-              <LogOut size={14} />
-              <span className="hidden md:inline">Sign Out</span>
+              <LogOut size={14} aria-hidden="true" />
+              <span className="hidden xl:inline">Sign Out</span>
             </button>
           </div>
         </header>
@@ -247,7 +287,32 @@ export default function MainLayout() {
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print-full-width">
+        <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print-full-width space-y-5">
+          {/* Prominent Global Quick Search Bar for Admin & Director */}
+          {permissions.canViewAllSchoolsAndReports && activeTab !== 'admin' && (
+            <div className="no-print max-w-6xl mx-auto">
+              <button
+                type="button"
+                onClick={() => setShowGlobalSearch(true)}
+                className="w-full bg-white/90 hover:bg-white border border-slate-200/90 hover:border-violet-300 rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3 text-left shadow-2xs transition-all group"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0">
+                    <Search size={14} />
+                  </div>
+                  <span className="text-xs text-slate-500 group-hover:text-slate-800 truncate">
+                    Quick global search across <strong className="text-slate-700">Schools</strong>,{' '}
+                    <strong className="text-slate-700">Teachers</strong>, and{' '}
+                    <strong className="text-slate-700">Students</strong>...
+                  </span>
+                </div>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-mono font-semibold text-slate-500 shrink-0">
+                  Ctrl+K
+                </span>
+              </button>
+            </div>
+          )}
+
           {activeTab === 'teachers' && permissions.canViewTeacherRoster ? (
             <TeacherRosterView />
           ) : activeTab === 'reports' ? (
@@ -266,8 +331,8 @@ export default function MainLayout() {
               <RubricsView school={activeSchool} spec={activeSpec} />
             )
           ) : (
-            <div className="max-w-lg mx-auto my-8 sm:my-16 bg-white border border-slate-200 rounded-xl p-6 sm:p-8 text-center">
-              <div className="w-12 h-12 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <div className="max-w-lg mx-auto my-8 sm:my-16 bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 text-center shadow-sm">
+              <div className="w-12 h-12 bg-violet-100 text-violet-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <ShieldCheck size={22} />
               </div>
               <h2 className="text-lg font-bold text-slate-900">
@@ -282,15 +347,24 @@ export default function MainLayout() {
                 <button
                   type="button"
                   onClick={() => setMobileMenuOpen(true)}
-                  className="lg:hidden px-4 py-2.5 min-h-[44px] bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors"
+                  className="lg:hidden px-4 py-2.5 min-h-[44px] bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors"
                 >
                   Choose School
                 </button>
+                {profile?.role === 'teacher' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-violet-600 text-white rounded-xl text-xs font-semibold hover:bg-violet-700 transition-colors"
+                  >
+                    <UserCog size={14} /> Edit My Profile &amp; Photo
+                  </button>
+                )}
                 {permissions.canAccessAdminConsole && (
                   <button
                     type="button"
                     onClick={() => setActiveTab('admin')}
-                    className="px-4 py-2.5 min-h-[44px] bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 transition-colors"
+                    className="px-4 py-2.5 min-h-[44px] bg-violet-600 text-white rounded-xl text-xs font-semibold hover:bg-violet-700 transition-colors"
                   >
                     Open Admin Console
                   </button>
@@ -304,7 +378,7 @@ export default function MainLayout() {
         {/* Mobile Bottom Tab Bar */}
         <nav
           aria-label="Primary mobile navigation"
-          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 grid h-16 px-1"
+          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 grid h-16 px-1 shadow-[0_-2px_10px_rgba(15,23,42,0.05)]"
           style={{
             gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))`,
             paddingBottom: 'env(safe-area-inset-bottom)',
@@ -322,7 +396,7 @@ export default function MainLayout() {
                   isActive ? 'text-violet-700' : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
-                <Icon size={20} strokeWidth={isActive ? 2.25 : 1.75} />
+                <Icon size={20} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
                 <span className="text-[10px] font-semibold leading-none whitespace-nowrap">
                   {tab.mobileLabel}
                 </span>
@@ -333,9 +407,29 @@ export default function MainLayout() {
       </main>
 
       <AccountPasswordModal
-        isOpen={showPasswordModal}
-        onClose={() => setShowPasswordModal(false)}
+        isOpen={showProfileModal}
+        schools={schools}
+        initialTab="profile"
+        onAfterSaveProfile={() => refreshWorkspace()}
+        onClose={() => setShowProfileModal(false)}
       />
+
+      {permissions.canViewAllSchoolsAndReports && (
+        <GlobalSearchModal
+          isOpen={showGlobalSearch}
+          schools={schools}
+          managedUsers={managedUsers}
+          attendanceThreshold={systemSettings.attendanceThreshold}
+          rubricMax={systemSettings.rubricMax}
+          onSelectClass={(schoolId, specId) => {
+            setActiveSchoolId(schoolId);
+            setActiveSpecId(specId);
+            setActiveTab('roster');
+          }}
+          onOpenTeachersTab={() => setActiveTab('teachers')}
+          onClose={() => setShowGlobalSearch(false)}
+        />
+      )}
     </div>
   );
 }

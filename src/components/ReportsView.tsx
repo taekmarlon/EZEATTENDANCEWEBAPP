@@ -10,7 +10,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
-import { Download, Printer, ArrowUpDown, FileText } from 'lucide-react';
+import { Download, Printer, ArrowUpDown, FileText, BarChart3 } from 'lucide-react';
 import { School, Specialization, Student } from '../types';
 import { useStore } from '../store';
 import { useToast } from '../context/ToastContext';
@@ -332,13 +332,18 @@ export default function ReportsView({
       >
         {/* Header + Export Actions */}
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Reports & Analytics
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Attendance trends, rubric averages, student scorecards, and print-ready exports.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Reports &amp; Analytics
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Attendance trends, rubric averages, student scorecards, and print-ready exports.
+              </p>
+            </div>
           </div>
           {permissions.canExportReports && (
             <div className="no-print flex items-center gap-2.5 shrink-0">

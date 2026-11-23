@@ -551,7 +551,7 @@ export async function dbUpsertStudent(
     school_id: schoolId,
     specialization_id: specId,
     name: profile.name.trim(),
-    roll_no: profile.rollNo.trim(),
+    roll_no: (profile.rollNo || '').trim(),
     grade_level: profile.gradeLevel.trim(),
     gender: profile.gender.trim(),
     contact_no: profile.contactNo.trim(),
@@ -579,6 +579,39 @@ export async function dbUpsertStudent(
   }
 
   return { photoUrl, teacherPhotoUrl };
+}
+
+export async function dbCreateStudentsBulk(
+  actor: UserProfile | null,
+  schoolId: string,
+  specId: string,
+  items: { id: string; profile: StudentProfileInput }[]
+): Promise<void> {
+  if (items.length === 0) return;
+  const client = requireSupabase();
+  const nowIso = new Date().toISOString();
+  const rows = items.map(({ id, profile }) => ({
+    id,
+    school_id: schoolId,
+    specialization_id: specId,
+    name: profile.name.trim(),
+    roll_no: (profile.rollNo || '').trim(),
+    grade_level: profile.gradeLevel.trim(),
+    gender: profile.gender.trim(),
+    contact_no: profile.contactNo.trim(),
+    teacher_name: profile.teacherName.trim(),
+    photo_url: null,
+    teacher_photo_url: null,
+    custom_fields: profile.customFields || {},
+    created_by: actor?.id ?? null,
+    updated_at: nowIso,
+  }));
+
+  const { error } = await client.from('students').insert(rows);
+  if (error) throw new Error(error.message);
+  await recordAuditLog(actor, 'BULK_IMPORT_STUDENTS', 'students', specId, schoolId, {
+    importedCount: rows.length,
+  });
 }
 
 export async function dbDeleteStudent(
@@ -815,19 +848,30 @@ async function applyManagedUserAccess(
     role: UserRole;
     isActive: boolean;
     fullName: string;
+    avatarUrl?: string | null;
     assignments: { schoolId: string; specializationId: string | null }[];
   },
   auditAction: 'UPDATE_USER_ACCESS' | 'CREATE_USER'
 ): Promise<void> {
   const client = requireSupabase();
+  const profilePatch: Record<string, unknown> = {
+    role: input.role,
+    is_active: input.isActive,
+    full_name: input.fullName.trim(),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.avatarUrl !== undefined) {
+    const uploadedAvatar =
+      input.avatarUrl === null
+        ? undefined
+        : await uploadMediaImageIfNeeded(`avatars/${input.userId}`, input.avatarUrl);
+    profilePatch.avatar_url = uploadedAvatar || null;
+  }
+
   const { data: updatedProfile, error: profErr } = await client
     .from('profiles')
-    .update({
-      role: input.role,
-      is_active: input.isActive,
-      full_name: input.fullName.trim(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(profilePatch)
     .eq('id', input.userId)
     .select('id')
     .maybeSingle();
@@ -951,10 +995,50 @@ export async function dbUpdateManagedUserAccess(
     role: UserRole;
     isActive: boolean;
     fullName: string;
+    avatarUrl?: string | null;
     assignments: { schoolId: string; specializationId: string | null }[];
   }
 ): Promise<void> {
   await applyManagedUserAccess(actor, input, 'UPDATE_USER_ACCESS');
+}
+
+export async function dbUpdateOwnProfile(input: {
+  userId: string;
+  fullName: string;
+  avatarUrl?: string;
+}): Promise<{ fullName: string; avatarUrl?: string }> {
+  const cleanName = input.fullName.trim();
+  if (!cleanName) {
+    throw new Error('Full name is required.');
+  }
+  const client = requireSupabase();
+  const uploadedAvatar = input.avatarUrl
+    ? await uploadMediaImageIfNeeded(`avatars/${input.userId}`, input.avatarUrl)
+    : undefined;
+
+  const { data, error } = await client.rpc('update_my_profile', {
+    p_full_name: cleanName,
+    p_avatar_url: uploadedAvatar || null,
+  });
+
+  if (error) {
+    if (/update_my_profile|does not exist|schema cache/i.test(error.message)) {
+      throw new Error(
+        'Self profile editing requires applying supabase/migrations/007_profile_self_update_and_optional_roll.sql in Supabase SQL Editor.'
+      );
+    }
+    throw new Error(error.message);
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    full_name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+
+  return {
+    fullName: row?.full_name || cleanName,
+    avatarUrl: row?.avatar_url || uploadedAvatar || undefined,
+  };
 }
 
 export async function dbAssignSpecializationTeachers(

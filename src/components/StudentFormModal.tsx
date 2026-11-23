@@ -1,5 +1,16 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { X } from 'lucide-react';
+import {
+  X,
+  UserPlus,
+  UserCog,
+  User,
+  Hash,
+  GraduationCap,
+  Users,
+  Phone,
+  Tag,
+  Check,
+} from 'lucide-react';
 import { Student, StudentProfileInput } from '../types';
 import { PhotoUploader } from './Avatar';
 import { useStore } from '../store';
@@ -40,7 +51,6 @@ export default function StudentFormModal({
   mode,
   initialStudent,
   defaultTeacherName = '',
-  defaultTeacherPhoto,
   onSave,
   onClose,
 }: StudentFormModalProps) {
@@ -51,7 +61,6 @@ export default function StudentFormModal({
   const [gender, setGender] = useState('');
   const [contactNo, setContactNo] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(undefined);
-  const [teacherPhoto, setTeacherPhoto] = useState<string | undefined>(undefined);
   const [customFields, setCustomFields] = useState<Record<string, string>>({});
 
   const resolvedTeacherName = (
@@ -62,12 +71,11 @@ export default function StudentFormModal({
     if (!isOpen) return;
     if (mode === 'edit' && initialStudent) {
       setName(initialStudent.name);
-      setRollNo(initialStudent.rollNo);
+      setRollNo(initialStudent.rollNo || '');
       setGradeLevel(initialStudent.gradeLevel || '');
       setGender(initialStudent.gender || '');
       setContactNo(initialStudent.contactNo || '');
       setPhoto(initialStudent.photo);
-      setTeacherPhoto(initialStudent.teacherPhoto);
       setCustomFields(initialStudent.customFields || {});
     } else {
       setName('');
@@ -76,7 +84,6 @@ export default function StudentFormModal({
       setGender('');
       setContactNo('');
       setPhoto(undefined);
-      setTeacherPhoto(undefined);
       setCustomFields({});
     }
   }, [isOpen, mode, initialStudent]);
@@ -85,7 +92,7 @@ export default function StudentFormModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !rollNo.trim()) return;
+    if (!name.trim()) return;
     onSave({
       name: name.trim(),
       rollNo: rollNo.trim(),
@@ -94,7 +101,7 @@ export default function StudentFormModal({
       contactNo: contactNo.trim(),
       teacherName: resolvedTeacherName,
       photo,
-      teacherPhoto,
+      teacherPhoto: mode === 'edit' ? initialStudent?.teacherPhoto : undefined,
       customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
     });
     onClose();
@@ -102,26 +109,31 @@ export default function StudentFormModal({
 
   return (
     <div
-      className="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-xs"
+      className="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-xl rounded-xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-white w-full max-w-xl rounded-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">
-              {mode === 'edit' ? 'Edit Student Profile' : 'Add Student'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Student details, portrait photo, and contact information.
-            </p>
+        <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-violet-50/70 via-white to-white flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+              {mode === 'edit' ? <UserCog size={18} /> : <UserPlus size={18} />}
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                {mode === 'edit' ? 'Edit Student Profile' : 'Add Student'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Student portrait photo, contact information, and enrollment details.
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 transition-colors p-1"
+            className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors p-1.5"
             aria-label="Close student form"
           >
             <X size={18} />
@@ -129,8 +141,8 @@ export default function StudentFormModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
-          {/* Portrait upload row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-5 border-b border-slate-100">
+          {/* Student Portrait Upload */}
+          <div className="pb-5 border-b border-slate-100">
             <PhotoUploader
               label="Student Picture"
               nameForFallback={name || 'Student'}
@@ -138,27 +150,15 @@ export default function StudentFormModal({
               onChange={setPhoto}
               size="lg"
             />
-            <div className="space-y-1">
-              <PhotoUploader
-                label="Teacher Picture (Optional)"
-                nameForFallback={resolvedTeacherName || 'Teacher'}
-                value={teacherPhoto || defaultTeacherPhoto}
-                onChange={setTeacherPhoto}
-                canRemove={Boolean(teacherPhoto)}
-                size="lg"
-              />
-              {!teacherPhoto && defaultTeacherPhoto && (
-                <p className="text-[11px] text-slate-400">
-                  Using specialization default teacher photo. Upload to override.
-                </p>
-              )}
-            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Student Name <span className="text-rose-600">*</span>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <User size={13} className="text-violet-600" />
+                <span>
+                  Student Name <span className="text-rose-600">*</span>
+                </span>
               </label>
               <input
                 autoFocus
@@ -172,22 +172,23 @@ export default function StudentFormModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Roll / ID No. <span className="text-rose-600">*</span>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Hash size={13} className="text-slate-400" />
+                <span>Roll / ID No. (Optional)</span>
               </label>
               <input
                 type="text"
-                required
                 value={rollNo}
                 onChange={(e) => setRollNo(e.target.value)}
-                placeholder="e.g. EZ-2026-001"
+                placeholder="Optional (e.g. EZ-2026-001)"
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Grade Level
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <GraduationCap size={13} className="text-slate-400" />
+                <span>Grade Level</span>
               </label>
               <input
                 type="text"
@@ -205,8 +206,9 @@ export default function StudentFormModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Gender
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Users size={13} className="text-slate-400" />
+                <span>Gender</span>
               </label>
               <select
                 value={gender}
@@ -222,8 +224,9 @@ export default function StudentFormModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Contact No.
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Phone size={13} className="text-slate-400" />
+                <span>Contact No.</span>
               </label>
               <input
                 type="tel"
@@ -236,8 +239,9 @@ export default function StudentFormModal({
 
             {systemSettings.customStudentFields.map((field) => (
               <div key={field.id}>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  {field.label}
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                  <Tag size={13} className="text-slate-400" />
+                  <span>{field.label}</span>
                 </label>
                 <input
                   type="text"
@@ -262,9 +266,10 @@ export default function StudentFormModal({
             </button>
             <button
               type="submit"
-              disabled={!name.trim() || !rollNo.trim()}
-              className="px-4 py-2 text-xs font-semibold text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors shadow-xs"
+              disabled={!name.trim()}
+              className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-40 shadow-sm transition-colors"
             >
+              <Check size={14} />
               {mode === 'edit' ? 'Save Changes' : 'Add Student'}
             </button>
           </div>

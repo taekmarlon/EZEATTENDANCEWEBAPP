@@ -190,4 +190,31 @@ describe('AdminConfigView', () => {
       })
     );
   });
+
+  it('allows Admins to edit a Teacher name and profile photo directly from the Registered Users card', () => {
+    mockUpdateUserAssignments.mockClear();
+    mockUpdateUserAssignments.mockResolvedValue(undefined);
+
+    render(
+      <ToastProvider>
+        <AdminConfigView />
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit Name & Photo/i }));
+    expect(screen.getByText(/Edit Name & Profile Photo: Ms\. Cruz/i)).toBeInTheDocument();
+
+    const fullNameInput = screen.getByLabelText(/^Full Name$/i);
+    fireEvent.change(fullNameInput, { target: { value: 'Ms. Elena Cruz-Santos' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Profile & Photo/i }));
+
+    expect(mockUpdateUserAssignments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 't-1',
+        fullName: 'Ms. Elena Cruz-Santos',
+        role: 'teacher',
+        avatarUrl: null,
+      })
+    );
+  });
 });

@@ -156,7 +156,7 @@ export type WorkspaceTab = 'roster' | 'rubrics' | 'teachers' | 'reports' | 'quer
 
 export interface StudentProfileInput {
   name: string;
-  rollNo: string;
+  rollNo?: string;
   gradeLevel: string;
   gender: string;
   contactNo: string;

@@ -1,5 +1,14 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Download, Save, Trash2, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Download,
+  Save,
+  Trash2,
+  X,
+  ClipboardCheck,
+} from 'lucide-react';
 import { School, Specialization, RubricEvaluation } from '../types';
 import { useStore } from '../store';
 import { useToast } from '../context/ToastContext';
@@ -172,7 +181,10 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
   if (spec.students.length === 0) {
     return (
       <div className="max-w-5xl mx-auto py-16">
-        <div className="text-center bg-white p-10 rounded-xl border border-slate-200">
+        <div className="text-center bg-white p-10 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-100 text-violet-600 flex items-center justify-center mx-auto mb-3">
+            <ClipboardCheck size={22} />
+          </div>
           <h2 className="text-base font-bold text-slate-900 mb-1.5">No Students Enrolled</h2>
           <p className="text-sm text-slate-500">
             Add students in the Attendance roster first to score rubric evaluations.
@@ -188,14 +200,19 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
   return (
     <div className="max-w-5xl mx-auto flex flex-col gap-6 pb-10">
       {/* Criteria Manager */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200">
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-xs">
         <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Rubric Criteria</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Define the {systemSettings.rubricMin}–{systemSettings.rubricMax} scoring dimensions
-              evaluated for {spec.name}.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+              <ClipboardCheck size={18} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Rubric Criteria</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Define the {systemSettings.rubricMin}–{systemSettings.rubricMax} scoring dimensions
+                evaluated for {spec.name}.
+              </p>
+            </div>
           </div>
           {permissions.canExportReports && (
             <button
@@ -272,14 +289,18 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
                   {student.name}
                 </h2>
                 <div className="flex flex-wrap items-center gap-x-2 text-slate-400 text-xs mt-0.5">
-                  <span className="font-mono tabular-nums">ID {student.rollNo}</span>
-                  {student.gradeLevel && (
+                  {student.rollNo && (
                     <>
+                      <span className="font-mono tabular-nums">ID {student.rollNo}</span>
                       <span aria-hidden="true">·</span>
-                      <span>{student.gradeLevel}</span>
                     </>
                   )}
-                  <span aria-hidden="true">·</span>
+                  {student.gradeLevel && (
+                    <>
+                      <span>{student.gradeLevel}</span>
+                      <span aria-hidden="true">·</span>
+                    </>
+                  )}
                   <span className="font-mono tabular-nums">
                     {studentIndex + 1} of {spec.students.length}
                   </span>

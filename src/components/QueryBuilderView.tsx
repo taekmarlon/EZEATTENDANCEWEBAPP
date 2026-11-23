@@ -8,6 +8,7 @@ import {
   RotateCcw,
   ArrowUpDown,
   X,
+  Filter,
 } from 'lucide-react';
 import {
   QueryDataset,
@@ -200,14 +201,19 @@ export default function QueryBuilderView() {
       >
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Visual Query Builder
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Filter students, attendance logs, and rubric evaluations across all schools and save
-              reusable presets.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+              <Filter size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Visual Query Builder
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Filter students, attendance logs, and rubric evaluations across all schools and save
+                reusable presets.
+              </p>
+            </div>
           </div>
           <div className="no-print flex items-center gap-2.5 shrink-0">
             <button

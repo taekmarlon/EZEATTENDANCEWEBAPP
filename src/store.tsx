@@ -34,6 +34,7 @@ import {
   dbCreateManagedUser,
   dbCreateSchool,
   dbCreateSpecialization,
+  dbCreateStudentsBulk,
   dbDeleteEvaluation,
   dbDeleteQueryPreset,
   dbDeleteRubricCriterion,
@@ -74,6 +75,7 @@ interface StoreContextType {
     teacherPhoto?: string
   ) => void;
   addStudent: (schoolId: string, specId: string, profile: StudentProfileInput) => void;
+  addStudentsBulk: (schoolId: string, specId: string, profiles: StudentProfileInput[]) => number;
   deleteStudent: (schoolId: string, specId: string, studentId: string) => void;
   updateStudent: (
     schoolId: string,
@@ -110,6 +112,7 @@ interface StoreContextType {
     role: UserRole;
     isActive: boolean;
     fullName: string;
+    avatarUrl?: string | null;
     assignments: { schoolId: string; specializationId: string | null }[];
   }) => Promise<void>;
   createManagedUserAccount: (input: {
@@ -397,7 +400,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   {
                     id: studentId,
                     name: studentInput.name.trim(),
-                    rollNo: studentInput.rollNo.trim(),
+                    rollNo: (studentInput.rollNo || '').trim(),
                     gradeLevel: studentInput.gradeLevel.trim(),
                     gender: studentInput.gender.trim(),
                     contactNo: studentInput.contactNo.trim(),
@@ -421,6 +424,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Could not save student to Supabase.'
         );
       }
+    },
+    [profile, runDbMutation]
+  );
+
+  const addStudentsBulk = useCallback(
+    (schoolId: string, specId: string, studentInputs: StudentProfileInput[]): number => {
+      const validInputs = studentInputs.filter((s) => s.name.trim().length > 0);
+      if (validInputs.length === 0) return 0;
+
+      const items = validInputs.map((input) => ({
+        id: crypto.randomUUID(),
+        profile: {
+          ...input,
+          rollNo: (input.rollNo || '').trim(),
+        },
+      }));
+
+      setRawSchools((prev) =>
+        prev.map((s) => {
+          if (s.id !== schoolId) return s;
+          return {
+            ...s,
+            specializations: s.specializations.map((sp) => {
+              if (sp.id !== specId) return sp;
+              const newStudents = items.map(({ id, profile: st }) => ({
+                id,
+                name: st.name.trim(),
+                rollNo: st.rollNo,
+                gradeLevel: st.gradeLevel.trim(),
+                gender: st.gender.trim(),
+                contactNo: st.contactNo.trim(),
+                teacherName: st.teacherName.trim() || sp.teacherName || '',
+                customFields: st.customFields,
+                attendance: {},
+                evaluations: [],
+              }));
+              return {
+                ...sp,
+                students: [...sp.students, ...newStudents],
+              };
+            }),
+          };
+        })
+      );
+
+      if (profile) {
+        void runDbMutation(
+          () => dbCreateStudentsBulk(profile, schoolId, specId, items),
+          'Could not import CSV students to Supabase.'
+        );
+      }
+      return items.length;
     },
     [profile, runDbMutation]
   );
@@ -469,7 +524,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                             ? {
                                 ...st,
                                 name: studentInput.name.trim(),
-                                rollNo: studentInput.rollNo.trim(),
+                                rollNo: (studentInput.rollNo || '').trim(),
                                 gradeLevel: studentInput.gradeLevel.trim(),
                                 gender: studentInput.gender.trim(),
                                 contactNo: studentInput.contactNo.trim(),
@@ -721,6 +776,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       role: UserRole;
       isActive: boolean;
       fullName: string;
+      avatarUrl?: string | null;
       assignments: { schoolId: string; specializationId: string | null }[];
     }) => {
       await dbUpdateManagedUserAccess(profile, input);
@@ -791,6 +847,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteSpecialization,
         updateSpecializationTeacher,
         addStudent,
+        addStudentsBulk,
         deleteStudent,
         updateStudent,
         updateAttendance,

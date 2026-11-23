@@ -235,9 +235,11 @@ export default function AdminDirectoryPanel({
                 <div>
                   <div className="font-bold text-slate-900">
                     {student.name}{' '}
-                    <span className="font-mono text-[11px] text-slate-400">
-                      ({student.rollNo})
-                    </span>
+                    {student.rollNo && (
+                      <span className="font-mono text-[11px] text-slate-400">
+                        ({student.rollNo})
+                      </span>
+                    )}
                   </div>
                   <div className="text-slate-500">
                     {school.name} · {spec.name}

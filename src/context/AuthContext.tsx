@@ -17,6 +17,7 @@ import {
   subscribeAuthState,
   updateOwnPassword,
 } from '../services/supabaseAuth';
+import { dbUpdateOwnProfile } from '../services/supabaseDb';
 import { TeacherAssignment, UserProfile, UserRole } from '../types';
 
 interface AuthContextType {
@@ -34,6 +35,7 @@ interface AuthContextType {
   ) => Promise<{ ok: boolean; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   changeOwnPassword?: (currentPassword: string, newPassword: string) => Promise<void>;
+  updateOwnProfile?: (fullName: string, avatarUrl?: string) => Promise<void>;
   refreshAccessContext?: () => Promise<void>;
   clearAuthError: () => void;
 }
@@ -150,6 +152,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateOwnPassword(currentPassword, newPassword);
   }, []);
 
+  const updateOwnProfile = useCallback(
+    async (fullName: string, avatarUrl?: string) => {
+      if (!profile?.id) {
+        throw new Error('No active user session found.');
+      }
+      const updated = await dbUpdateOwnProfile({
+        userId: profile.id,
+        fullName,
+        avatarUrl,
+      });
+      setProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              fullName: updated.fullName,
+              avatarUrl: updated.avatarUrl,
+            }
+          : prev
+      );
+    },
+    [profile?.id]
+  );
+
   const refreshAccessContext = useCallback(async () => {
     if (!isSupabaseConfigured || !profile?.id) return;
     const bundle = await loadUserAccessContext(profile.id);
@@ -169,6 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signUp,
       signOut,
       changeOwnPassword,
+      updateOwnProfile,
       refreshAccessContext,
       clearAuthError,
     }),
@@ -182,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signUp,
       signOut,
       changeOwnPassword,
+      updateOwnProfile,
       refreshAccessContext,
       clearAuthError,
     ]

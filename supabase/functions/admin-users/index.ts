@@ -129,6 +129,12 @@ Deno.serve(async (req) => {
       const role = body.role;
       const isActive = Boolean(body.isActive);
       const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : undefined;
+      const avatarUrl =
+        body.avatarUrl === null
+          ? null
+          : typeof body.avatarUrl === 'string'
+          ? body.avatarUrl.trim() || null
+          : undefined;
       const assignments: AssignmentInput[] | undefined = Array.isArray(body.assignments)
         ? body.assignments
         : undefined;
@@ -146,6 +152,9 @@ Deno.serve(async (req) => {
       }
       if (fullName !== undefined) {
         patch.full_name = fullName;
+      }
+      if (avatarUrl !== undefined) {
+        patch.avatar_url = avatarUrl;
       }
 
       const { error: updErr } = await adminClient.from('profiles').update(patch).eq('id', userId);
