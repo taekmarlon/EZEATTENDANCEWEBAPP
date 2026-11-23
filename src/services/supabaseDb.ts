@@ -1058,25 +1058,53 @@ export async function dbImportSchools(
   actor: UserProfile | null,
   schoolsToImport: School[]
 ): Promise<void> {
+  const client = requireSupabase();
   for (const sch of schoolsToImport) {
     await dbCreateSchool(actor, sch.id, sch.name, sch.logo);
+
+    // Fetch trigger-seeded specializations so imported data reuses them without duplicating names
+    const { data: existingSpecs } = await client
+      .from('specializations')
+      .select('id, name')
+      .eq('school_id', sch.id);
+    const existingSpecIdByName = new Map<string, string>();
+    for (const row of existingSpecs || []) {
+      existingSpecIdByName.set(String(row.name || '').trim().toLowerCase(), row.id);
+    }
+
     for (const sp of sch.specializations) {
-      await dbCreateSpecialization(actor, sp.id, sch.id, sp.name, sp.teacherName || '');
-      if (sp.teacherPhoto) {
-        await dbUpdateSpecializationTeacher(
-          actor,
-          sch.id,
-          sp.id,
-          sp.teacherName || '',
-          sp.teacherPhoto
-        );
+      const normalizedSpecName = sp.name.trim().toLowerCase();
+      const matchedId = existingSpecIdByName.get(normalizedSpecName);
+      const targetSpecId = matchedId || sp.id;
+      if (matchedId) {
+        if (sp.teacherName?.trim() || sp.teacherPhoto) {
+          await dbUpdateSpecializationTeacher(
+            actor,
+            sch.id,
+            targetSpecId,
+            sp.teacherName || '',
+            sp.teacherPhoto
+          );
+        }
+      } else {
+        await dbCreateSpecialization(actor, targetSpecId, sch.id, sp.name, sp.teacherName || '');
+        existingSpecIdByName.set(normalizedSpecName, targetSpecId);
+        if (sp.teacherPhoto) {
+          await dbUpdateSpecializationTeacher(
+            actor,
+            sch.id,
+            targetSpecId,
+            sp.teacherName || '',
+            sp.teacherPhoto
+          );
+        }
       }
       for (let idx = 0; idx < sp.rubricCriteria.length; idx++) {
         const c = sp.rubricCriteria[idx];
-        await dbAddRubricCriterion(actor, c.id, sch.id, sp.id, c.name, idx);
+        await dbAddRubricCriterion(actor, c.id, sch.id, targetSpecId, c.name, idx);
       }
       for (const st of sp.students) {
-        await dbUpsertStudent(actor, 'create', sch.id, sp.id, st.id, {
+        await dbUpsertStudent(actor, 'create', sch.id, targetSpecId, st.id, {
           name: st.name,
           rollNo: st.rollNo,
           gradeLevel: st.gradeLevel,

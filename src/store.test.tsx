@@ -30,6 +30,7 @@ vi.mock('./services/supabaseDb', async (importOriginal) => {
   return {
     ...actual,
     fetchWorkspaceSnapshot: vi.fn(),
+    dbCreateSchool: vi.fn().mockResolvedValue(undefined),
     dbUpdateSchool: vi.fn().mockResolvedValue(undefined),
     dbDeleteRubricCriterion: vi.fn().mockResolvedValue(undefined),
     dbCreateSpecialization: vi.fn().mockResolvedValue(undefined),
@@ -151,5 +152,56 @@ describe('StoreProvider (Supabase)', () => {
       'Present'
     );
     expect(captured.schools[0].specializations[0].students[0].evaluations).toHaveLength(0);
+  });
+
+  it('refreshes workspace after addSchool so database trigger-seeded specializations appear immediately', async () => {
+    let captured!: ReturnType<typeof useStore>;
+    const seededAfterCreate: School[] = [
+      ...makeSeedSchool(),
+      {
+        id: 's-new',
+        name: 'Westside Campus',
+        specializations: [
+          { id: 'auto-guitar', name: 'GUITAR', rubricCriteria: [], students: [] },
+        ],
+      },
+    ];
+    vi.mocked(supabaseDb.fetchWorkspaceSnapshot)
+      .mockResolvedValueOnce({
+        schools: makeSeedSchool(),
+        systemSettings: DEFAULT_SYSTEM_SETTINGS,
+        presets: [],
+        managedUsers: [],
+        auditLogs: [],
+      })
+      .mockResolvedValueOnce({
+        schools: seededAfterCreate,
+        systemSettings: DEFAULT_SYSTEM_SETTINGS,
+        presets: [],
+        managedUsers: [],
+        auditLogs: [],
+      });
+
+    render(
+      <ToastProvider>
+        <StoreProvider>
+          <StoreHarness onReady={(s) => (captured = s)} />
+        </StoreProvider>
+      </ToastProvider>
+    );
+
+    await waitFor(() => expect(captured.isHydrated).toBe(true));
+
+    act(() => {
+      captured.addSchool('Westside Campus');
+    });
+
+    await waitFor(() => expect(supabaseDb.dbCreateSchool).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(supabaseDb.fetchWorkspaceSnapshot).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        captured.schools.find((s) => s.name === 'Westside Campus')?.specializations.map((sp) => sp.name)
+      ).toEqual(['GUITAR'])
+    );
   });
 });

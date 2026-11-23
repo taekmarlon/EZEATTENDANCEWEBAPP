@@ -228,11 +228,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               prev.map((s) => (s.id === id ? { ...s, logo: uploadedUrl } : s))
             );
           }
+          // Re-hydrate so database trigger-seeded default specializations appear immediately
+          await refreshWorkspace();
         }, 'Could not create school in Supabase.');
       }
       return created;
     },
-    [profile, runDbMutation]
+    [profile, runDbMutation, refreshWorkspace]
   );
 
   const deleteSchool = useCallback(

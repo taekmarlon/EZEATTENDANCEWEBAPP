@@ -8,6 +8,10 @@ const mockAssignmentsDelete = vi.fn();
 const mockAssignmentsDeleteIn = vi.fn();
 const mockAssignmentsInsert = vi.fn();
 const mockAuditInsert = vi.fn();
+const mockSchoolsInsert = vi.fn();
+const mockSpecsSelect = vi.fn();
+const mockSpecsInsert = vi.fn();
+const mockSpecsUpdate = vi.fn();
 
 vi.mock('../lib/supabase', () => ({
   isSupabaseConfigured: true,
@@ -24,6 +28,22 @@ vi.mock('../lib/supabase', () => ({
                 maybeSingle: () => mockProfileUpdate(),
               }),
             }),
+          }),
+        };
+      }
+      if (table === 'schools') {
+        return {
+          insert: (...args: unknown[]) => mockSchoolsInsert(...args),
+        };
+      }
+      if (table === 'specializations') {
+        return {
+          select: () => ({
+            eq: () => mockSpecsSelect(),
+          }),
+          insert: (...args: unknown[]) => mockSpecsInsert(...args),
+          update: (...args: unknown[]) => ({
+            eq: () => mockSpecsUpdate(...args),
           }),
         };
       }
@@ -62,6 +82,7 @@ import {
   dbAdminResetUserPassword,
   dbAssignSpecializationTeachers,
   dbCreateManagedUser,
+  dbImportSchools,
 } from './supabaseDb';
 
 describe('supabaseDb workspace assembler', () => {
@@ -265,5 +286,47 @@ describe('dbCreateManagedUser admin provisioning', () => {
     await expect(dbAdminDeleteUser(adminActor, 'admin-1')).rejects.toThrow(
       /cannot delete your own/i
     );
+  });
+
+  it('reuses trigger-seeded specializations during dbImportSchools without inserting duplicates', async () => {
+    mockSchoolsInsert.mockResolvedValue({ error: null });
+    mockSpecsSelect.mockResolvedValue({
+      data: [{ id: 'seeded-guitar-uuid', name: 'GUITAR' }],
+      error: null,
+    });
+    mockSpecsInsert.mockResolvedValue({ error: null });
+    mockSpecsUpdate.mockResolvedValue({ error: null });
+
+    await dbImportSchools(adminActor, [
+      {
+        id: 'sch-import-1',
+        name: 'East Campus',
+        specializations: [
+          {
+            id: 'legacy-guitar-id',
+            name: 'Guitar',
+            teacherName: 'Mr. Reyes',
+            rubricCriteria: [],
+            students: [],
+          },
+          {
+            id: 'custom-coding-id',
+            name: 'Coding',
+            teacherName: '',
+            rubricCriteria: [],
+            students: [],
+          },
+        ],
+      },
+    ]);
+
+    expect(mockSpecsUpdate).toHaveBeenCalledTimes(1);
+    expect(mockSpecsInsert).toHaveBeenCalledTimes(1);
+    expect(mockSpecsInsert).toHaveBeenCalledWith({
+      id: 'custom-coding-id',
+      school_id: 'sch-import-1',
+      name: 'Coding',
+      teacher_name: '',
+    });
   });
 });
