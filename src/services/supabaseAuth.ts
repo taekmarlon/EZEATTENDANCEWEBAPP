@@ -97,7 +97,13 @@ export async function signInWithRolePortal(
   });
 
   if (error || !data.user) {
-    throw new Error(error?.message || 'Invalid email or password.');
+    const rawMsg = error?.message || 'Invalid email or password.';
+    if (/email not confirmed/i.test(rawMsg)) {
+      throw new Error(
+        'Email confirmation is still enabled in Supabase Auth settings. Turn OFF "Confirm email" in Supabase Authentication -> Providers -> Email or reset this account in the Admin Console.'
+      );
+    }
+    throw new Error(rawMsg);
   }
 
   try {
@@ -139,6 +145,34 @@ export async function signUpAccount(
     throw new Error(error.message);
   }
   return { needsEmailConfirmation: !data.session };
+}
+
+export async function updateOwnPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  if (newPassword.length < 8) {
+    throw new Error('New password must be at least 8 characters long.');
+  }
+  const client = requireSupabase();
+  const { data: userData, error: userErr } = await client.auth.getUser();
+  const email = userData.user?.email;
+  if (userErr || !email) {
+    throw new Error('Could not verify active user session.');
+  }
+
+  const { error: verifyErr } = await client.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  });
+  if (verifyErr) {
+    throw new Error('Current password is incorrect.');
+  }
+
+  const { error: updateErr } = await client.auth.updateUser({ password: newPassword });
+  if (updateErr) {
+    throw new Error(updateErr.message);
+  }
 }
 
 export async function signOutSession(): Promise<void> {

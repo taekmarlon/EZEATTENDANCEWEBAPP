@@ -11,16 +11,45 @@ import {
   Trash2,
   Check,
   RefreshCw,
+  Search,
+  KeyRound,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { ManagedUser, School, SystemSettings, TeacherAssignment, UserRole } from '../types';
+import { DEFAULT_DIRECTOR_PERMISSIONS } from '../services/permissions';
+import {
+  DirectorPermissions,
+  ManagedUser,
+  School,
+  SystemSettings,
+  TeacherAssignment,
+  UserRole,
+} from '../types';
 import { createWorkspaceBackupJson, parseWorkspaceBackupJson } from '../utils/backup';
 import { downloadTextFile } from '../utils/export';
 import { loadPersistedSchools } from '../utils/storage';
+import ConfirmModal from './ConfirmModal';
+import AdminDirectoryPanel from './AdminDirectoryPanel';
 
-type AdminSubTab = 'users' | 'settings' | 'audit';
+type AdminSubTab = 'users' | 'directory' | 'settings' | 'audit';
+
+const DIRECTOR_PERMISSION_FIELDS: { key: keyof DirectorPermissions; label: string }[] = [
+  { key: 'canCreateSchools', label: 'Create Schools' },
+  { key: 'canEditSchools', label: 'Edit School Names & Logos' },
+  { key: 'canDeleteSchools', label: 'Delete Schools (Requires typing DELETE)' },
+  { key: 'canCreateSpecializations', label: 'Add Specializations' },
+  { key: 'canEditSpecializations', label: 'Edit Specialization Teacher Details' },
+  { key: 'canDeleteSpecializations', label: 'Delete Specializations (Requires typing DELETE)' },
+  { key: 'canAssignTeachers', label: 'Assign Teachers / Co-Teachers to Specializations' },
+  { key: 'canManageStudents', label: 'Add & Edit Student Profiles' },
+  { key: 'canDeleteStudents', label: 'Delete Students (Requires typing DELETE)' },
+  { key: 'canManageAttendanceAndRubrics', label: 'Log Attendance & Score Rubric Evaluations' },
+  { key: 'canConfigureRubrics', label: 'Add Rubric Criteria' },
+  { key: 'canDeleteEvaluationsOrCriteria', label: 'Delete Rubric Criteria & Evaluations' },
+  { key: 'canExportReports', label: 'Export CSV & Print Reports' },
+];
 
 const THEME_SWATCHES = [
   { label: 'Violet', hex: '#6d28d9' },
@@ -185,8 +214,11 @@ export default function AdminConfigView() {
     updateSystemSettings,
     updateManagedUserAccess,
     createManagedUserAccount,
+    resetUserPassword,
+    deleteManagedUser,
     importLegacyJsonToCloud,
   } = useStore();
+  const auth = useAuth();
   const { showToast } = useToast();
 
   const [subTab, setSubTab] = useState<AdminSubTab>('users');
@@ -195,22 +227,28 @@ export default function AdminConfigView() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newConfirmPassword, setNewConfirmPassword] = useState('');
   const [newFullName, setNewFullName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('teacher');
   const [newAssignments, setNewAssignments] = useState<TeacherAssignment[]>([]);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
-  // Edit user access state
+  // Edit user access & Admin password reset state
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
   const [draftRole, setDraftRole] = useState<UserRole>('teacher');
   const [draftActive, setDraftActive] = useState(true);
   const [draftName, setDraftName] = useState('');
   const [draftAssignments, setDraftAssignments] = useState<TeacherAssignment[]>([]);
   const [isSavingUser, setIsSavingUser] = useState(false);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [deletingUser, setDeletingUser] = useState<ManagedUser | null>(null);
 
   // System customization draft
   const [draftSettings, setDraftSettings] = useState<SystemSettings>(systemSettings);
   const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [deletingField, setDeletingField] = useState<{ id: string; label: string } | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   const [isImporting, setIsImporting] = useState(false);
@@ -223,6 +261,8 @@ export default function AdminConfigView() {
     setDraftActive(user.isActive);
     setDraftName(user.fullName);
     setDraftAssignments(user.assignments);
+    setResetNewPassword('');
+    setResetConfirmPassword('');
   };
 
   const toggleNewSchoolWideAssignment = (schoolId: string) => {
@@ -247,6 +287,14 @@ export default function AdminConfigView() {
 
   const handleCreateUser = async (e: FormEvent) => {
     e.preventDefault();
+    if (newPassword.length < 8) {
+      showToast('Initial password must be at least 8 characters.', 'error');
+      return;
+    }
+    if (newPassword !== newConfirmPassword) {
+      showToast('Password and Confirm Password do not match.', 'error');
+      return;
+    }
     setIsCreatingUser(true);
     const assignedScopes =
       newRole === 'teacher'
@@ -265,11 +313,12 @@ export default function AdminConfigView() {
       });
       showToast(
         res?.needsEmailConfirmation
-          ? `Created ${newRole} account for ${newEmail}. Disable "Confirm email" in Supabase Auth or have them confirm before signing in.`
+          ? `Created ${newRole} account for ${newEmail}. Disable "Confirm email" in Supabase Auth or deploy admin-users Edge Function for instant login.`
           : `Created ${newRole} account for ${newEmail}.`
       );
       setNewEmail('');
       setNewPassword('');
+      setNewConfirmPassword('');
       setNewFullName('');
       setNewAssignments([]);
       setShowCreateUser(false);
@@ -277,6 +326,29 @@ export default function AdminConfigView() {
       showToast(err instanceof Error ? err.message : 'Failed to create user.', 'error');
     } finally {
       setIsCreatingUser(false);
+    }
+  };
+
+  const handleAdminResetPassword = async () => {
+    if (!editingUser) return;
+    if (resetNewPassword.length < 8) {
+      showToast('New password must be at least 8 characters.', 'error');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      showToast('New password and Confirm Password do not match.', 'error');
+      return;
+    }
+    setIsResettingPassword(true);
+    try {
+      await resetUserPassword(editingUser.id, resetNewPassword);
+      showToast(`Password reset for ${editingUser.email}. They can log in immediately.`);
+      setResetNewPassword('');
+      setResetConfirmPassword('');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to reset user password.', 'error');
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -387,9 +459,10 @@ export default function AdminConfigView() {
       </div>
 
       {/* Admin Sub-Navigation */}
-      <div className="inline-flex p-1 bg-slate-100 rounded-xl gap-1 self-start">
+      <div className="inline-flex flex-wrap p-1 bg-slate-100 rounded-xl gap-1 self-start">
         {[
           { id: 'users' as AdminSubTab, label: 'Users & Access', icon: Users },
+          { id: 'directory' as AdminSubTab, label: 'Global Directory', icon: Search },
           { id: 'settings' as AdminSubTab, label: 'System Customization', icon: Sliders },
           { id: 'audit' as AdminSubTab, label: 'Audit & Data', icon: ShieldAlert },
         ].map((tab) => {
@@ -443,12 +516,16 @@ export default function AdminConfigView() {
                 onSubmit={handleCreateUser}
                 className="p-5 bg-slate-50 border-b border-slate-200 space-y-4"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    <label
+                      htmlFor="create-user-fullname"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
                       Full Name
                     </label>
                     <input
+                      id="create-user-fullname"
                       type="text"
                       required
                       value={newFullName}
@@ -458,10 +535,14 @@ export default function AdminConfigView() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    <label
+                      htmlFor="create-user-email"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
                       Email
                     </label>
                     <input
+                      id="create-user-email"
                       type="email"
                       required
                       value={newEmail}
@@ -471,10 +552,14 @@ export default function AdminConfigView() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    <label
+                      htmlFor="create-user-password"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
                       Initial Password (min 8)
                     </label>
                     <input
+                      id="create-user-password"
                       type="password"
                       required
                       minLength={8}
@@ -485,10 +570,32 @@ export default function AdminConfigView() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    <label
+                      htmlFor="create-user-confirm-password"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
+                      Confirm Password
+                    </label>
+                    <input
+                      id="create-user-confirm-password"
+                      type="password"
+                      required
+                      minLength={8}
+                      value={newConfirmPassword}
+                      onChange={(e) => setNewConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="create-user-role"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
                       Role
                     </label>
                     <select
+                      id="create-user-role"
                       value={newRole}
                       onChange={(e) => setNewRole(e.target.value as UserRole)}
                       className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs"
@@ -506,6 +613,12 @@ export default function AdminConfigView() {
                     {isCreatingUser ? 'Creating...' : 'Create Account'}
                   </button>
                 </div>
+
+                {newPassword && newConfirmPassword && newPassword !== newConfirmPassword && (
+                  <p className="text-xs font-medium text-rose-700">
+                    Passwords do not match. Re-enter matching passwords to continue.
+                  </p>
+                )}
 
                 {newRole === 'teacher' && (
                   <TeacherAssignmentMatrix
@@ -570,13 +683,26 @@ export default function AdminConfigView() {
                         </div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openUserEditor(user)}
-                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Configure Role &amp; Access
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openUserEditor(user)}
+                        className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Configure Role &amp; Access
+                      </button>
+                      {auth?.profile?.id !== user.id && (
+                        <button
+                          type="button"
+                          onClick={() => setDeletingUser(user)}
+                          aria-label={`Delete user ${user.email}`}
+                          title="Delete User Account"
+                          className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -650,6 +776,64 @@ export default function AdminConfigView() {
                 />
               )}
 
+              {/* Admin Direct Password Reset */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound size={14} className="text-violet-600" />
+                  <h5 className="text-xs font-bold text-slate-900">
+                    Admin Password Reset ({editingUser.email})
+                  </h5>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Supabase hashes passwords one-way; set a new login password below to immediately
+                  override access (requires deployed admin-users Edge Function).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+                  <div>
+                    <label
+                      htmlFor="admin-reset-new-password"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
+                      New Password (min 8)
+                    </label>
+                    <input
+                      id="admin-reset-new-password"
+                      type="password"
+                      minLength={8}
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="admin-reset-confirm-password"
+                      className="block text-[11px] font-semibold text-slate-600 mb-1"
+                    >
+                      Confirm New Password
+                    </label>
+                    <input
+                      id="admin-reset-confirm-password"
+                      type="password"
+                      minLength={8}
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isResettingPassword || !resetNewPassword}
+                    onClick={handleAdminResetPassword}
+                    className="px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {isResettingPassword ? 'Resetting...' : 'Reset User Password'}
+                  </button>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -672,7 +856,21 @@ export default function AdminConfigView() {
         </div>
       )}
 
-      {/* TAB 2: SYSTEM CUSTOMIZATION */}
+      {/* TAB 2: GLOBAL ADMIN DIRECTORY & SEARCH */}
+      {subTab === 'directory' && (
+        <AdminDirectoryPanel
+          schools={schools}
+          managedUsers={managedUsers}
+          attendanceThreshold={systemSettings.attendanceThreshold}
+          rubricMax={systemSettings.rubricMax}
+          onSelectUser={(u) => {
+            setSubTab('users');
+            openUserEditor(u);
+          }}
+        />
+      )}
+
+      {/* TAB 3: SYSTEM CUSTOMIZATION & DIRECTOR PERMISSIONS */}
       {subTab === 'settings' && (
         <form
           onSubmit={handleSaveSettings}
@@ -793,8 +991,8 @@ export default function AdminConfigView() {
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100">
-            <label className="inline-flex items-center gap-2.5 text-xs font-semibold text-slate-800 cursor-pointer">
+          <div className="pt-4 border-t border-slate-100 space-y-4">
+            <label className="inline-flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer">
               <input
                 type="checkbox"
                 checked={draftSettings.directorCanEdit}
@@ -802,9 +1000,49 @@ export default function AdminConfigView() {
                   setDraftSettings((prev) => ({ ...prev, directorCanEdit: e.target.checked }))
                 }
               />
-              Allow Directors to add/edit schools, students, attendance &amp; rubrics (uncheck for
-              read-only Director oversight)
+              Enable Director Write Privileges (uncheck for completely read-only Directors)
             </label>
+
+            {draftSettings.directorCanEdit && (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">
+                    Granular Director Permissions
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Fine-tune exactly which create, edit, assign, delete, and export actions
+                    Directors can perform (enforced in Supabase RLS &amp; UI).
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {DIRECTOR_PERMISSION_FIELDS.map(({ key, label }) => {
+                    const currentPerms =
+                      draftSettings.directorPermissions || DEFAULT_DIRECTOR_PERMISSIONS;
+                    return (
+                      <label
+                        key={key}
+                        className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer bg-white border border-slate-200 rounded-lg px-3 py-2"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(currentPerms[key])}
+                          onChange={(e) =>
+                            setDraftSettings((prev) => ({
+                              ...prev,
+                              directorPermissions: {
+                                ...(prev.directorPermissions || DEFAULT_DIRECTOR_PERMISSIONS),
+                                [key]: e.target.checked,
+                              },
+                            }))
+                          }
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Custom Student Fields */}
@@ -824,15 +1062,9 @@ export default function AdminConfigView() {
                   {f.label}
                   <button
                     type="button"
-                    onClick={() =>
-                      setDraftSettings((prev) => ({
-                        ...prev,
-                        customStudentFields: prev.customStudentFields.filter(
-                          (item) => item.id !== f.id
-                        ),
-                      }))
-                    }
+                    onClick={() => setDeletingField({ id: f.id, label: f.label })}
                     className="text-slate-400 hover:text-rose-600"
+                    aria-label={`Remove field ${f.label}`}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -966,6 +1198,54 @@ export default function AdminConfigView() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!deletingUser}
+        title="Delete User Account"
+        confirmText="Delete User"
+        message={
+          <p>
+            Are you sure you want to permanently delete <strong>{deletingUser?.email}</strong>? All
+            school/specialization assignments for this user will be removed.
+          </p>
+        }
+        onConfirm={async () => {
+          if (!deletingUser) return;
+          try {
+            await deleteManagedUser(deletingUser.id);
+            if (editingUser?.id === deletingUser.id) {
+              setEditingUser(null);
+            }
+            showToast(`Deleted user ${deletingUser.email}.`, 'info');
+          } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Failed to delete user.', 'error');
+          }
+        }}
+        onCancel={() => setDeletingUser(null)}
+      />
+
+      <ConfirmModal
+        isOpen={!!deletingField}
+        title="Remove Custom Student Field"
+        confirmText="Remove Field"
+        message={
+          <p>
+            Are you sure you want to remove the custom field{' '}
+            <strong>{deletingField?.label}</strong> from system settings?
+          </p>
+        }
+        onConfirm={() => {
+          if (deletingField) {
+            setDraftSettings((prev) => ({
+              ...prev,
+              customStudentFields: prev.customStudentFields.filter(
+                (item) => item.id !== deletingField.id
+              ),
+            }));
+          }
+        }}
+        onCancel={() => setDeletingField(null)}
+      />
     </div>
   );
 }

@@ -1,4 +1,26 @@
-import { School, SystemSettings, TeacherAssignment, UserRole } from '../types';
+import {
+  DirectorPermissions,
+  School,
+  SystemSettings,
+  TeacherAssignment,
+  UserRole,
+} from '../types';
+
+export const DEFAULT_DIRECTOR_PERMISSIONS: DirectorPermissions = {
+  canCreateSchools: true,
+  canEditSchools: true,
+  canDeleteSchools: true,
+  canCreateSpecializations: true,
+  canEditSpecializations: true,
+  canDeleteSpecializations: true,
+  canAssignTeachers: true,
+  canManageStudents: true,
+  canDeleteStudents: true,
+  canManageAttendanceAndRubrics: true,
+  canConfigureRubrics: true,
+  canDeleteEvaluationsOrCriteria: true,
+  canExportReports: true,
+};
 
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   portalName: 'EZ Center Portal',
@@ -15,16 +37,53 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   },
   customStudentFields: [],
   directorCanEdit: true,
+  directorPermissions: DEFAULT_DIRECTOR_PERMISSIONS,
 };
+
+export function normalizeDirectorPermissions(settings: SystemSettings): DirectorPermissions {
+  if (!settings.directorCanEdit) {
+    return {
+      canCreateSchools: false,
+      canEditSchools: false,
+      canDeleteSchools: false,
+      canCreateSpecializations: false,
+      canEditSpecializations: false,
+      canDeleteSpecializations: false,
+      canAssignTeachers: false,
+      canManageStudents: false,
+      canDeleteStudents: false,
+      canManageAttendanceAndRubrics: false,
+      canConfigureRubrics: false,
+      canDeleteEvaluationsOrCriteria: false,
+      canExportReports: settings.directorPermissions?.canExportReports ?? true,
+    };
+  }
+  return {
+    ...DEFAULT_DIRECTOR_PERMISSIONS,
+    ...(settings.directorPermissions || {}),
+  };
+}
 
 export interface RolePermissions {
   canAccessAdminConsole: boolean;
   canManageUsersAndSettings: boolean;
+  canViewTeacherRoster: boolean;
+  canAssignTeachersToSpecializations: boolean;
+  canCreateSchools: boolean;
+  canEditSchools: boolean;
+  canDeleteSchools: boolean;
+  canCreateSpecializations: boolean;
+  canDeleteSpecializations: boolean;
   canManageSchools: boolean;
   canManageSpecializations: boolean;
   canEditSpecializationTeacher: boolean;
   canManageStudentsAndAttendance: boolean;
+  canDeleteStudents: boolean;
+  canLogAttendanceAndGrade: boolean;
   canConfigureRubricsAndGrade: boolean;
+  canConfigureRubrics: boolean;
+  canDeleteEvaluationsOrCriteria: boolean;
+  canExportReports: boolean;
   canViewAllSchoolsAndReports: boolean;
 }
 
@@ -32,16 +91,39 @@ export function getRolePermissions(role: UserRole, settings: SystemSettings): Ro
   const isAdmin = role === 'admin';
   const isDirector = role === 'director';
   const isTeacher = role === 'teacher';
-  const directorWrite = isDirector && settings.directorCanEdit;
+  const dp = normalizeDirectorPermissions(settings);
+
+  const canCreateSchools = isAdmin || (isDirector && dp.canCreateSchools);
+  const canEditSchools = isAdmin || (isDirector && dp.canEditSchools);
+  const canDeleteSchools = isAdmin || (isDirector && dp.canDeleteSchools);
+  const canCreateSpecializations = isAdmin || (isDirector && dp.canCreateSpecializations);
+  const canDeleteSpecializations = isAdmin || (isDirector && dp.canDeleteSpecializations);
 
   return {
     canAccessAdminConsole: isAdmin,
     canManageUsersAndSettings: isAdmin,
-    canManageSchools: isAdmin || directorWrite,
-    canManageSpecializations: isAdmin || directorWrite,
-    canEditSpecializationTeacher: isAdmin || isTeacher || directorWrite,
-    canManageStudentsAndAttendance: isAdmin || isTeacher || directorWrite,
-    canConfigureRubricsAndGrade: isAdmin || isTeacher || directorWrite,
+    canViewTeacherRoster: isAdmin || isDirector,
+    canAssignTeachersToSpecializations: isAdmin || (isDirector && dp.canAssignTeachers),
+    canCreateSchools,
+    canEditSchools,
+    canDeleteSchools,
+    canCreateSpecializations,
+    canDeleteSpecializations,
+    canManageSchools: canCreateSchools || canEditSchools || canDeleteSchools,
+    canManageSpecializations: canCreateSpecializations || canDeleteSpecializations,
+    canEditSpecializationTeacher: isAdmin || isTeacher || (isDirector && dp.canEditSpecializations),
+    canManageStudentsAndAttendance: isAdmin || isTeacher || (isDirector && dp.canManageStudents),
+    canDeleteStudents: isAdmin || isTeacher || (isDirector && dp.canDeleteStudents),
+    canLogAttendanceAndGrade:
+      isAdmin || isTeacher || (isDirector && dp.canManageAttendanceAndRubrics),
+    canConfigureRubricsAndGrade:
+      isAdmin ||
+      isTeacher ||
+      (isDirector && (dp.canConfigureRubrics || dp.canManageAttendanceAndRubrics)),
+    canConfigureRubrics: isAdmin || isTeacher || (isDirector && dp.canConfigureRubrics),
+    canDeleteEvaluationsOrCriteria:
+      isAdmin || isTeacher || (isDirector && dp.canDeleteEvaluationsOrCriteria),
+    canExportReports: isAdmin || isTeacher || (isDirector && dp.canExportReports),
     canViewAllSchoolsAndReports: isAdmin || isDirector,
   };
 }

@@ -2,6 +2,8 @@ import { createEphemeralAuthClient, requireSupabase } from '../lib/supabase';
 import {
   AttendanceStatus,
   AuditLogEntry,
+  CoTeacherSummary,
+  DirectorPermissions,
   ManagedUser,
   QueryPreset,
   RubricEvaluation,
@@ -14,7 +16,7 @@ import {
   UserProfile,
   UserRole,
 } from '../types';
-import { DEFAULT_SYSTEM_SETTINGS } from './permissions';
+import { DEFAULT_DIRECTOR_PERMISSIONS, DEFAULT_SYSTEM_SETTINGS } from './permissions';
 
 const MEDIA_BUCKET = 'ez-media';
 
@@ -63,6 +65,7 @@ export interface RawWorkspaceRows {
     criterion_id: string;
     score: number | string;
   }[];
+  coTeachersBySpec?: Map<string, CoTeacherSummary[]>;
 }
 
 export function assembleWorkspaceSchools(rows: RawWorkspaceRows): School[] {
@@ -84,11 +87,14 @@ export function assembleWorkspaceSchools(rows: RawWorkspaceRows): School[] {
   for (const sp of rows.specializations) {
     const school = schoolMap.get(sp.school_id);
     if (!school) continue;
+    const coTeachers = rows.coTeachersBySpec?.get(sp.id) || [];
+    const fallbackNames = coTeachers.map((t) => t.fullName).join(' & ');
     const spec: Specialization = {
       id: sp.id,
       name: sp.name,
-      teacherName: sp.teacher_name || '',
-      teacherPhoto: sp.teacher_photo_url || undefined,
+      teacherName: sp.teacher_name || fallbackNames || '',
+      teacherPhoto: sp.teacher_photo_url || coTeachers[0]?.avatarUrl || undefined,
+      coTeachers: coTeachers.length > 0 ? coTeachers : undefined,
       students: [],
       rubricCriteria: [],
     };
@@ -179,7 +185,63 @@ function mapSystemSettingsRow(row: Record<string, unknown> | null): SystemSettin
       typeof row.director_can_edit === 'boolean'
         ? row.director_can_edit
         : DEFAULT_SYSTEM_SETTINGS.directorCanEdit,
+    directorPermissions:
+      row.director_permissions && typeof row.director_permissions === 'object'
+        ? {
+            ...DEFAULT_DIRECTOR_PERMISSIONS,
+            ...(row.director_permissions as Partial<DirectorPermissions>),
+          }
+        : DEFAULT_DIRECTOR_PERMISSIONS,
   };
+}
+
+function buildCoTeachersBySpecFromUsers(
+  specs: { id: string; school_id: string }[],
+  users: ManagedUser[]
+): Map<string, CoTeacherSummary[]> {
+  const bySpec = new Map<string, CoTeacherSummary[]>();
+  const activeTeachers = users.filter((u) => u.role === 'teacher' && u.isActive);
+  for (const sp of specs) {
+    const matched = activeTeachers
+      .filter((t) =>
+        t.assignments.some(
+          (a) =>
+            a.schoolId === sp.school_id &&
+            (a.specializationId === sp.id || a.specializationId === null)
+        )
+      )
+      .map((t) => ({ id: t.id, fullName: t.fullName, avatarUrl: t.avatarUrl }));
+    if (matched.length > 0) {
+      bySpec.set(sp.id, matched);
+    }
+  }
+  return bySpec;
+}
+
+async function fetchTeacherCoTeachersBySpec(): Promise<Map<string, CoTeacherSummary[]>> {
+  const bySpec = new Map<string, CoTeacherSummary[]>();
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('list_shared_specialization_teachers');
+    if (error || !Array.isArray(data)) return bySpec;
+    for (const row of data as {
+      specialization_id: string;
+      teacher_id: string;
+      full_name?: string | null;
+      avatar_url?: string | null;
+    }[]) {
+      const list = bySpec.get(row.specialization_id) || [];
+      list.push({
+        id: row.teacher_id,
+        fullName: row.full_name || 'Teacher',
+        avatarUrl: row.avatar_url || undefined,
+      });
+      bySpec.set(row.specialization_id, list);
+    }
+  } catch {
+    // Graceful fallback before 005_upgrade_rbac_and_coteaching.sql is applied
+  }
+  return bySpec;
 }
 
 export interface WorkspaceSnapshot {
@@ -226,16 +288,6 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
     client.from('query_presets').select('id, name, is_shared, config').order('created_at'),
   ]);
 
-  const schools = assembleWorkspaceSchools({
-    schools: schoolsRes.data || [],
-    specializations: specsRes.data || [],
-    criteria: criteriaRes.data || [],
-    students: studentsRes.data || [],
-    attendance: attRes.data || [],
-    evaluations: evalsRes.data || [],
-    scores: scoresRes.data || [],
-  });
-
   const presets: QueryPreset[] = (presetsRes.data || []).map((row) => ({
     ...(row.config as Omit<QueryPreset, 'id' | 'name' | 'isShared'>),
     id: row.id,
@@ -246,6 +298,7 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
 
   let managedUsers: ManagedUser[] = [];
   let auditLogs: AuditLogEntry[] = [];
+  let coTeachersBySpec = new Map<string, CoTeacherSummary[]>();
 
   if (profile.role === 'admin' || profile.role === 'director') {
     const [profilesRes, assignmentsRes, logsRes] = await Promise.all([
@@ -287,6 +340,8 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
       assignments: assignByTeacher.get(u.id) || [],
     }));
 
+    coTeachersBySpec = buildCoTeachersBySpecFromUsers(specsRes.data || [], managedUsers);
+
     auditLogs = (logsRes.data || []).map((l) => ({
       id: l.id,
       actorId: l.actor_id,
@@ -299,7 +354,20 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
       metadata: (l.metadata as Record<string, unknown>) || {},
       createdAt: l.created_at,
     }));
+  } else {
+    coTeachersBySpec = await fetchTeacherCoTeachersBySpec();
   }
+
+  const schools = assembleWorkspaceSchools({
+    schools: schoolsRes.data || [],
+    specializations: specsRes.data || [],
+    criteria: criteriaRes.data || [],
+    students: studentsRes.data || [],
+    attendance: attRes.data || [],
+    evaluations: evalsRes.data || [],
+    scores: scoresRes.data || [],
+    coTeachersBySpec,
+  });
 
   return {
     schools,
@@ -676,6 +744,7 @@ export async function dbUpdateSystemSettings(
   settings: SystemSettings
 ): Promise<void> {
   const client = requireSupabase();
+  const directorPermissions = settings.directorPermissions || DEFAULT_DIRECTOR_PERMISSIONS;
   const { error } = await client
     .from('system_settings')
     .upsert({
@@ -688,6 +757,7 @@ export async function dbUpdateSystemSettings(
       rubric_labels: settings.rubricLabels,
       custom_student_fields: settings.customStudentFields,
       director_can_edit: settings.directorCanEdit,
+      director_permissions: directorPermissions,
       updated_by: actor?.id ?? null,
       updated_at: new Date().toISOString(),
     });
@@ -885,6 +955,103 @@ export async function dbUpdateManagedUserAccess(
   }
 ): Promise<void> {
   await applyManagedUserAccess(actor, input, 'UPDATE_USER_ACCESS');
+}
+
+export async function dbAssignSpecializationTeachers(
+  actor: UserProfile | null,
+  schoolId: string,
+  specId: string,
+  teacherIds: string[]
+): Promise<void> {
+  const uniqueIds = Array.from(new Set(teacherIds.filter(Boolean)));
+  if (uniqueIds.length > 2) {
+    throw new Error('At most 2 co-teachers can be assigned to a single specialization.');
+  }
+
+  const client = requireSupabase();
+  const { data: existingRows, error: fetchErr } = await client
+    .from('teacher_school_assignments')
+    .select('teacher_id')
+    .eq('specialization_id', specId);
+  if (fetchErr) throw new Error(fetchErr.message);
+
+  const existingIds = new Set(
+    (existingRows || []).map((row) => String((row as { teacher_id: string }).teacher_id))
+  );
+  const targetIds = new Set(uniqueIds);
+
+  const removedIds = Array.from(existingIds).filter((id) => !targetIds.has(id));
+  const addedIds = uniqueIds.filter((id) => !existingIds.has(id));
+
+  if (removedIds.length > 0) {
+    const { error: delErr } = await client
+      .from('teacher_school_assignments')
+      .delete()
+      .eq('specialization_id', specId)
+      .in('teacher_id', removedIds);
+    if (delErr) throw new Error(delErr.message);
+  }
+
+  if (addedIds.length > 0) {
+    const { error: insErr } = await client.from('teacher_school_assignments').insert(
+      addedIds.map((teacherId) => ({
+        teacher_id: teacherId,
+        school_id: schoolId,
+        specialization_id: specId,
+        assigned_by: actor?.id ?? null,
+      }))
+    );
+    if (insErr) throw new Error(insErr.message);
+  }
+
+  await recordAuditLog(actor, 'ASSIGN_SPECIALIZATION_TEACHERS', 'specializations', specId, schoolId, {
+    teacherIds: uniqueIds,
+  });
+}
+
+async function invokeAdminUsersFunction(
+  body: Record<string, unknown>,
+  unavailableHint: string
+): Promise<Record<string, unknown>> {
+  const client = requireSupabase();
+  const { data, error } = await client.functions.invoke('admin-users', { body });
+  if (error) {
+    if (isEdgeFunctionUnavailableError(error)) {
+      throw new Error(unavailableHint);
+    }
+    throw new Error(await extractEdgeFunctionError(error));
+  }
+  if (data && typeof data === 'object' && 'error' in data && data.error) {
+    throw new Error(String((data as { error: unknown }).error));
+  }
+  return (data as Record<string, unknown>) || {};
+}
+
+export async function dbAdminResetUserPassword(
+  userId: string,
+  newPassword: string
+): Promise<void> {
+  if (!userId || newPassword.length < 8) {
+    throw new Error('User ID and a new password (min 8 characters) are required.');
+  }
+  await invokeAdminUsersFunction(
+    { action: 'reset_password', userId, password: newPassword },
+    'Admin password reset requires the deployed "admin-users" Supabase Edge Function (see docs/SUPABASE_SETUP.md).'
+  );
+}
+
+export async function dbAdminDeleteUser(
+  actor: UserProfile | null,
+  userId: string
+): Promise<void> {
+  if (!userId) throw new Error('User ID is required.');
+  if (actor?.id && actor.id === userId) {
+    throw new Error('You cannot delete your own active Admin account.');
+  }
+  await invokeAdminUsersFunction(
+    { action: 'delete_user', userId },
+    'Deleting user accounts requires the deployed "admin-users" Supabase Edge Function (see docs/SUPABASE_SETUP.md).'
+  );
 }
 
 export async function dbImportSchools(

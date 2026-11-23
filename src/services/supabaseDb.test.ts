@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockFunctionsInvoke = vi.fn();
 const mockEphemeralSignUp = vi.fn();
 const mockProfileUpdate = vi.fn();
+const mockAssignmentsSelect = vi.fn();
 const mockAssignmentsDelete = vi.fn();
+const mockAssignmentsDeleteIn = vi.fn();
 const mockAssignmentsInsert = vi.fn();
 const mockAuditInsert = vi.fn();
 
@@ -27,8 +29,14 @@ vi.mock('../lib/supabase', () => ({
       }
       if (table === 'teacher_school_assignments') {
         return {
+          select: () => ({
+            eq: () => mockAssignmentsSelect(),
+          }),
           delete: () => ({
-            eq: () => mockAssignmentsDelete(),
+            eq: () => ({
+              in: (...args: unknown[]) => mockAssignmentsDeleteIn(...args),
+              then: (resolve: (v: unknown) => void) => Promise.resolve(mockAssignmentsDelete()).then(resolve),
+            }),
           }),
           insert: (...args: unknown[]) => mockAssignmentsInsert(...args),
         };
@@ -48,7 +56,13 @@ vi.mock('../lib/supabase', () => ({
   }),
 }));
 
-import { assembleWorkspaceSchools, dbCreateManagedUser } from './supabaseDb';
+import {
+  assembleWorkspaceSchools,
+  dbAdminDeleteUser,
+  dbAdminResetUserPassword,
+  dbAssignSpecializationTeachers,
+  dbCreateManagedUser,
+} from './supabaseDb';
 
 describe('supabaseDb workspace assembler', () => {
   it('assembles relational Supabase rows into normalized School -> Specialization -> Student trees', () => {
@@ -214,5 +228,42 @@ describe('dbCreateManagedUser admin provisioning', () => {
       })
     ).rejects.toThrow(/already exists/i);
     expect(mockProfileUpdate).not.toHaveBeenCalled();
+  });
+
+  it('enforces max 2 co-teachers per specialization and diffs assignments cleanly', async () => {
+    await expect(
+      dbAssignSpecializationTeachers(adminActor, 'sch-1', 'sp-1', ['t-1', 't-2', 't-3'])
+    ).rejects.toThrow(/at most 2 co-teachers/i);
+
+    mockAssignmentsSelect.mockResolvedValue({
+      data: [{ teacher_id: 't-old' }, { teacher_id: 't-1' }],
+      error: null,
+    });
+    mockAssignmentsDeleteIn.mockResolvedValue({ error: null });
+
+    await dbAssignSpecializationTeachers(adminActor, 'sch-1', 'sp-1', ['t-1', 't-2']);
+
+    expect(mockAssignmentsDeleteIn).toHaveBeenCalledWith('teacher_id', ['t-old']);
+    expect(mockAssignmentsInsert).toHaveBeenCalledWith([
+      {
+        teacher_id: 't-2',
+        school_id: 'sch-1',
+        specialization_id: 'sp-1',
+        assigned_by: 'admin-1',
+      },
+    ]);
+  });
+
+  it('invokes admin-users Edge Function for Admin password reset and prevents self-delete', async () => {
+    mockFunctionsInvoke.mockResolvedValue({ data: { ok: true }, error: null });
+
+    await dbAdminResetUserPassword('t-1', 'NewSecure123');
+    expect(mockFunctionsInvoke).toHaveBeenCalledWith('admin-users', {
+      body: { action: 'reset_password', userId: 't-1', password: 'NewSecure123' },
+    });
+
+    await expect(dbAdminDeleteUser(adminActor, 'admin-1')).rejects.toThrow(
+      /cannot delete your own/i
+    );
   });
 });

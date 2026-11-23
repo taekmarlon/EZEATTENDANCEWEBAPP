@@ -31,6 +31,7 @@ import {
 } from '../utils/query';
 import { PortraitAvatar } from './Avatar';
 import StudentScorecardModal from './StudentScorecardModal';
+import ConfirmModal from './ConfirmModal';
 
 export default function QueryBuilderView() {
   const { schools, savedPresets, systemSettings, addQueryPreset, deleteQueryPreset } = useStore();
@@ -49,6 +50,7 @@ export default function QueryBuilderView() {
 
   const [isSavingPreset, setIsSavingPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
+  const [deletingPreset, setDeletingPreset] = useState<QueryPreset | null>(null);
   const [activeScorecard, setActiveScorecard] = useState<{
     school: School;
     spec: Specialization;
@@ -306,10 +308,7 @@ export default function QueryBuilderView() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    deleteQueryPreset(preset.id);
-                    showToast(`Removed preset "${preset.name}".`, 'info');
-                  }}
+                  onClick={() => setDeletingPreset(preset)}
                   aria-label={`Delete preset ${preset.name}`}
                   className="px-2 py-1.5 text-violet-400 hover:text-rose-600 transition-colors border-l border-violet-200"
                 >
@@ -668,6 +667,25 @@ export default function QueryBuilderView() {
           onClose={() => setActiveScorecard(null)}
         />
       )}
+
+      <ConfirmModal
+        isOpen={!!deletingPreset}
+        title="Delete Saved Query Preset"
+        confirmText="Delete Preset"
+        message={
+          <p>
+            Are you sure you want to delete saved query preset{' '}
+            <strong>{deletingPreset?.name}</strong>?
+          </p>
+        }
+        onConfirm={() => {
+          if (deletingPreset) {
+            deleteQueryPreset(deletingPreset.id);
+            showToast(`Removed preset "${deletingPreset.name}".`, 'info');
+          }
+        }}
+        onCancel={() => setDeletingPreset(null)}
+      />
     </>
   );
 }

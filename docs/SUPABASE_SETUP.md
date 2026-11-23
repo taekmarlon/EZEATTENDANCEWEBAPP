@@ -11,17 +11,22 @@
 4. For production on **Vercel**, add those exact same two variables under **Project Settings → Environment Variables**.
 
 ## 2. Apply Database Migrations
-If you have not already set up your database, run the four migration files in order in the **Supabase SQL Editor**:
+Run the five migration files in order in the **Supabase SQL Editor** (or via `supabase db push`):
 1. `supabase/migrations/001_schema.sql`
 2. `supabase/migrations/002_rls_policies.sql`
 3. `supabase/migrations/003_seed_defaults.sql`
 4. `supabase/migrations/004_profile_recovery.sql`
+5. `supabase/migrations/005_upgrade_rbac_and_coteaching.sql`
 
-> Note: If you are connecting this Web App to the **same Supabase project** used by the mobile portal, your tables, RLS policies, grants, and existing users/records work out of the box with no extra migrations needed.
+> **RBAC, Co-Teaching & Security:** `005_upgrade_rbac_and_coteaching.sql` adds granular `director_permissions` enforcement in RLS, allows Directors (when enabled) to assign Teachers to specializations, enforces a max of **2 co-teachers per specialization**, and enables co-teacher listing.
 
-## 3. Configure Web Redirect URLs in Supabase Auth
-After deploying to Vercel (e.g. `https://ez-center-web.vercel.app`):
-1. Open **Authentication → URL Configuration**.
-2. Set **Site URL** to `https://YOUR_VERCEL_DOMAIN.vercel.app`.
-3. Add `https://YOUR_VERCEL_DOMAIN.vercel.app/**` to **Redirect URLs**.
-4. *(Optional)* Under **Authentication → Providers → Email**, disable **Confirm email** if Teachers created in the Admin Console should log in immediately without confirming an email link.
+## 3. Deploy the `admin-users` Edge Function & Auth Settings
+1. Open **Authentication → Providers → Email** and turn **OFF** **Confirm email** so all users can log in immediately on first login.
+2. Deploy `supabase/functions/admin-users/index.ts` (enables Admin **Create User** with `email_confirm: true`, **Reset User Password**, and **Delete User**):
+   ```bash
+   supabase login
+   supabase link --project-ref YOUR_PROJECT_REF
+   supabase functions deploy admin-users
+   ```
+   *(Or deploy it via **Supabase Dashboard → Edge Functions → Via Editor** named `admin-users`.)*
+3. Under **Authentication → URL Configuration**, set **Site URL** to `https://YOUR_VERCEL_DOMAIN.vercel.app` and add `https://YOUR_VERCEL_DOMAIN.vercel.app/**` to **Redirect URLs**.

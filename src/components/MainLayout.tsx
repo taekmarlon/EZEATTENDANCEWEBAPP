@@ -3,6 +3,7 @@ import {
   Loader2,
   Menu,
   Users,
+  UserCheck,
   ClipboardCheck,
   BarChart3,
   Filter,
@@ -10,13 +11,16 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import RosterView from './RosterView';
 import RubricsView from './RubricsView';
+import TeacherRosterView from './TeacherRosterView';
 import ReportsView from './ReportsView';
 import QueryBuilderView from './QueryBuilderView';
 import AdminConfigView from './AdminConfigView';
+import AccountPasswordModal from './AccountPasswordModal';
 import OfflineBanner from './OfflineBanner';
 import PWAInstallButton from './PWAInstallButton';
 import { PortraitAvatar } from './Avatar';
@@ -32,6 +36,7 @@ const BASE_TABS: {
 }[] = [
   { id: 'roster', label: 'Attendance', mobileLabel: 'Roster', icon: Users },
   { id: 'rubrics', label: 'Rubrics', mobileLabel: 'Rubrics', icon: ClipboardCheck },
+  { id: 'teachers', label: 'Teachers', mobileLabel: 'Teachers', icon: UserCheck },
   { id: 'reports', label: 'Reports', mobileLabel: 'Reports', icon: BarChart3 },
   { id: 'query', label: 'Query', mobileLabel: 'Query', icon: Filter },
   { id: 'admin', label: 'Admin', mobileLabel: 'Admin', icon: Sliders },
@@ -45,17 +50,26 @@ export default function MainLayout() {
   const [activeSpecId, setActiveSpecId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('roster');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const visibleTabs = useMemo(
-    () => BASE_TABS.filter((t) => t.id !== 'admin' || permissions.canAccessAdminConsole),
-    [permissions.canAccessAdminConsole]
+    () =>
+      BASE_TABS.filter((t) => {
+        if (t.id === 'admin') return permissions.canAccessAdminConsole;
+        if (t.id === 'teachers') return permissions.canViewTeacherRoster;
+        return true;
+      }),
+    [permissions.canAccessAdminConsole, permissions.canViewTeacherRoster]
   );
 
   useEffect(() => {
-    if (activeTab === 'admin' && !permissions.canAccessAdminConsole) {
+    if (
+      (activeTab === 'admin' && !permissions.canAccessAdminConsole) ||
+      (activeTab === 'teachers' && !permissions.canViewTeacherRoster)
+    ) {
       setActiveTab('roster');
     }
-  }, [activeTab, permissions.canAccessAdminConsole]);
+  }, [activeTab, permissions.canAccessAdminConsole, permissions.canViewTeacherRoster]);
 
   useEffect(() => {
     if (schools.length > 0 && !activeSchoolId) {
@@ -167,8 +181,8 @@ export default function MainLayout() {
             })}
           </nav>
 
-          {/* Zone 3: Role Profile & Sign-Out */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Zone 3: Role Profile, Password Settings & Sign-Out */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => void refreshWorkspace()}
@@ -179,7 +193,22 @@ export default function MainLayout() {
               <RefreshCw size={15} className={isLoadingData ? 'animate-spin' : ''} />
             </button>
 
-            <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setShowPasswordModal(true)}
+              title="Account & Password Settings"
+              aria-label="Change password"
+              className="sm:hidden p-2 rounded-lg text-slate-500 hover:text-violet-700 hover:bg-violet-50 transition-colors"
+            >
+              <KeyRound size={15} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPasswordModal(true)}
+              title="Click to update your account password"
+              className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 hover:border-violet-300 hover:bg-violet-50/40 transition-colors text-left"
+            >
               <PortraitAvatar
                 src={profile?.avatarUrl}
                 name={profile?.fullName || profile?.email || 'User'}
@@ -194,7 +223,7 @@ export default function MainLayout() {
                   {roleBadgeLabel}
                 </div>
               </div>
-            </div>
+            </button>
 
             <button
               type="button"
@@ -219,7 +248,9 @@ export default function MainLayout() {
         )}
 
         <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print-full-width">
-          {activeTab === 'reports' ? (
+          {activeTab === 'teachers' && permissions.canViewTeacherRoster ? (
+            <TeacherRosterView />
+          ) : activeTab === 'reports' ? (
             <ReportsView
               defaultSchoolId={activeSchoolId}
               defaultSpecId={activeSpecId}
@@ -273,10 +304,11 @@ export default function MainLayout() {
         {/* Mobile Bottom Tab Bar */}
         <nav
           aria-label="Primary mobile navigation"
-          className={`no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 grid h-16 px-1 ${
-            visibleTabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'
-          }`}
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 grid h-16 px-1"
+          style={{
+            gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))`,
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}
         >
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
@@ -299,6 +331,11 @@ export default function MainLayout() {
           })}
         </nav>
       </main>
+
+      <AccountPasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
     </div>
   );
 }

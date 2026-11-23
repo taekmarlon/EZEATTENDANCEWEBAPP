@@ -28,6 +28,9 @@ import {
 } from './services/permissions';
 import {
   dbAddRubricCriterion,
+  dbAdminDeleteUser,
+  dbAdminResetUserPassword,
+  dbAssignSpecializationTeachers,
   dbCreateManagedUser,
   dbCreateSchool,
   dbCreateSpecialization,
@@ -116,6 +119,13 @@ interface StoreContextType {
     role: UserRole;
     assignments: { schoolId: string; specializationId: string | null }[];
   }) => Promise<{ needsEmailConfirmation: boolean }>;
+  assignSpecializationTeachers: (
+    schoolId: string,
+    specId: string,
+    teacherIds: string[]
+  ) => Promise<void>;
+  resetUserPassword: (userId: string, newPassword: string) => Promise<void>;
+  deleteManagedUser: (userId: string) => Promise<void>;
   importLegacyJsonToCloud: (schoolsToImport: School[]) => Promise<void>;
 }
 
@@ -732,6 +742,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [profile, refreshWorkspace]
   );
 
+  const assignSpecializationTeachers = useCallback(
+    async (schoolId: string, specId: string, teacherIds: string[]) => {
+      await dbAssignSpecializationTeachers(profile, schoolId, specId, teacherIds);
+      await refreshWorkspace();
+    },
+    [profile, refreshWorkspace]
+  );
+
+  const resetUserPassword = useCallback(async (userId: string, newPassword: string) => {
+    await dbAdminResetUserPassword(userId, newPassword);
+  }, []);
+
+  const deleteManagedUser = useCallback(
+    async (userId: string) => {
+      await dbAdminDeleteUser(profile, userId);
+      await refreshWorkspace();
+    },
+    [profile, refreshWorkspace]
+  );
+
   const importLegacyJsonToCloud = useCallback(
     async (schoolsToImport: School[]) => {
       await dbImportSchools(profile, schoolsToImport);
@@ -771,6 +801,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         updateSystemSettings,
         updateManagedUserAccess,
         createManagedUserAccount,
+        assignSpecializationTeachers,
+        resetUserPassword,
+        deleteManagedUser,
         importLegacyJsonToCloud,
       }}
     >

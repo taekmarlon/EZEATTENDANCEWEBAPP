@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { useToast } from '../context/ToastContext';
 import { downloadCSV } from '../utils/export';
 import { PortraitAvatar } from './Avatar';
+import ConfirmModal from './ConfirmModal';
 import { format } from 'date-fns';
 
 interface RubricsViewProps {
@@ -32,6 +33,10 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
   const [newCriterionName, setNewCriterionName] = useState('');
   const [evalDate, setEvalDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [deletingCriterion, setDeletingCriterion] = useState<{ id: string; name: string } | null>(
+    null
+  );
+  const [confirmingDeleteEval, setConfirmingDeleteEval] = useState(false);
 
   useEffect(() => {
     setNewCriterionName('');
@@ -192,13 +197,15 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
               evaluated for {spec.name}.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold text-xs transition-colors whitespace-nowrap"
-          >
-            <Download size={14} /> Export Evaluations CSV
-          </button>
+          {permissions.canExportReports && (
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold text-xs transition-colors whitespace-nowrap"
+            >
+              <Download size={14} /> Export Evaluations CSV
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -211,10 +218,10 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
               className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1 rounded-md text-xs font-semibold text-slate-700"
             >
               <span>{c.name}</span>
-              {permissions.canConfigureRubricsAndGrade && (
+              {permissions.canDeleteEvaluationsOrCriteria && (
                 <button
                   type="button"
-                  onClick={() => deleteRubricCriterion(school.id, spec.id, c.id)}
+                  onClick={() => setDeletingCriterion({ id: c.id, name: c.name })}
                   className="text-slate-400 hover:text-rose-600 transition-colors"
                   aria-label={`Remove ${c.name}`}
                 >
@@ -225,7 +232,7 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
           ))}
         </div>
 
-        {permissions.canConfigureRubricsAndGrade && (
+        {permissions.canConfigureRubrics && (
           <form onSubmit={handleAddCriterion} className="flex gap-2">
             <input
               type="text"
@@ -340,7 +347,7 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
                           <button
                             key={val}
                             type="button"
-                            disabled={!permissions.canConfigureRubricsAndGrade}
+                            disabled={!permissions.canLogAttendanceAndGrade}
                             title={systemSettings.rubricLabels[String(val)] || String(val)}
                             onClick={() => handleScoreChange(criterion.id, val)}
                             className={`w-10 h-10 rounded-lg font-mono tabular-nums font-bold text-sm flex items-center justify-center transition-colors disabled:opacity-60 ${
@@ -357,25 +364,27 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
                   );
                 })}
 
-                {permissions.canConfigureRubricsAndGrade && (
+                {(permissions.canLogAttendanceAndGrade || permissions.canDeleteEvaluationsOrCriteria) && (
                   <div className="pt-4 flex items-center justify-end gap-2.5">
-                    {existingEvaluation && (
+                    {existingEvaluation && permissions.canDeleteEvaluationsOrCriteria && (
                       <button
                         type="button"
-                        onClick={handleDeleteEvaluation}
+                        onClick={() => setConfirmingDeleteEval(true)}
                         className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-rose-200 text-rose-600 text-xs font-semibold rounded-lg hover:bg-rose-50 transition-colors"
                       >
                         <Trash2 size={14} /> Delete Evaluation
                       </button>
                     )}
-                    <button
-                      type="button"
-                      disabled={activeScoreCount === 0}
-                      onClick={handleSaveEvaluation}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white text-xs font-semibold rounded-lg shadow-xs hover:bg-violet-700 disabled:opacity-45 transition-colors"
-                    >
-                      <Save size={15} /> Save Evaluation
-                    </button>
+                    {permissions.canLogAttendanceAndGrade && (
+                      <button
+                        type="button"
+                        disabled={activeScoreCount === 0}
+                        onClick={handleSaveEvaluation}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white text-xs font-semibold rounded-lg shadow-xs hover:bg-violet-700 disabled:opacity-45 transition-colors"
+                      >
+                        <Save size={15} /> Save Evaluation
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -383,6 +392,39 @@ export default function RubricsView({ school, spec }: RubricsViewProps) {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!deletingCriterion}
+        title="Delete Rubric Criterion"
+        confirmText="Delete Criterion"
+        message={
+          <p>
+            Are you sure you want to remove <strong>{deletingCriterion?.name}</strong> from{' '}
+            {spec.name}? Existing scores for this criterion will be deleted.
+          </p>
+        }
+        onConfirm={() => {
+          if (deletingCriterion) {
+            deleteRubricCriterion(school.id, spec.id, deletingCriterion.id);
+            showToast(`Removed criterion "${deletingCriterion.name}".`, 'info');
+          }
+        }}
+        onCancel={() => setDeletingCriterion(null)}
+      />
+
+      <ConfirmModal
+        isOpen={confirmingDeleteEval}
+        title="Delete Evaluation"
+        confirmText="Delete Evaluation"
+        message={
+          <p>
+            Are you sure you want to delete this rubric evaluation for{' '}
+            <strong>{student?.name}</strong> ({evalDate})?
+          </p>
+        }
+        onConfirm={handleDeleteEvaluation}
+        onCancel={() => setConfirmingDeleteEval(false)}
+      />
     </div>
   );
 }

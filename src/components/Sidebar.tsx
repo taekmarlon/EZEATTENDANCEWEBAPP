@@ -56,7 +56,7 @@ export default function Sidebar({
 
   const handleAddSchool = (e: FormEvent) => {
     e.preventDefault();
-    if (newSchoolName.trim() && permissions.canManageSchools) {
+    if (newSchoolName.trim() && permissions.canCreateSchools) {
       const created = addSchool(newSchoolName.trim());
       setNewSchoolName('');
       setActiveSchoolId(created.id);
@@ -68,7 +68,7 @@ export default function Sidebar({
 
   const handleAddSpec = (e: FormEvent, schoolId: string) => {
     e.preventDefault();
-    if (newSpecName.trim() && permissions.canManageSpecializations) {
+    if (newSpecName.trim() && permissions.canCreateSpecializations) {
       addSpecialization(schoolId, newSpecName.trim());
       setNewSpecName('');
       setAddingSpecTo(null);
@@ -109,7 +109,7 @@ export default function Sidebar({
             <label className="text-xs font-semibold text-slate-500">
               Schools ({schools.length})
             </label>
-            {permissions.canManageSchools && (
+            {permissions.canCreateSchools && (
               <button
                 type="button"
                 onClick={() => setIsCreatingSchoolModal(true)}
@@ -120,7 +120,7 @@ export default function Sidebar({
             )}
           </div>
 
-          {permissions.canManageSchools && (
+          {permissions.canCreateSchools && (
             <form onSubmit={handleAddSchool} className="mb-4 flex gap-1.5">
               <input
                 type="text"
@@ -184,32 +184,32 @@ export default function Sidebar({
                       </div>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
-                      {permissions.canManageSchools && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingSchool(school);
-                            }}
-                            aria-label={`Edit ${school.name}`}
-                            title="Edit school name & logo"
-                            className="text-slate-400 lg:text-slate-300 hover:text-violet-700 lg:opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeletingSchool(school.id);
-                            }}
-                            aria-label={`Delete ${school.name}`}
-                            className="text-slate-400 lg:text-slate-300 hover:text-rose-600 lg:opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
+                      {permissions.canEditSchools && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSchool(school);
+                          }}
+                          aria-label={`Edit ${school.name}`}
+                          title="Edit school name & logo"
+                          className="text-slate-400 lg:text-slate-300 hover:text-violet-700 lg:opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      {permissions.canDeleteSchools && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingSchool(school.id);
+                          }}
+                          aria-label={`Delete ${school.name}`}
+                          className="text-slate-400 lg:text-slate-300 hover:text-rose-600 lg:opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       )}
                       <button
                         type="button"
@@ -243,13 +243,15 @@ export default function Sidebar({
                         >
                           <div className="min-w-0">
                             <div className="text-xs truncate">{spec.name}</div>
-                            {spec.teacherName && (
+                            {(spec.coTeachers?.length || spec.teacherName) && (
                               <div className="text-[10px] text-slate-400 truncate">
-                                {spec.teacherName}
+                                {spec.coTeachers && spec.coTeachers.length > 0
+                                  ? spec.coTeachers.map((t) => t.fullName).join(' & ')
+                                  : spec.teacherName}
                               </div>
                             )}
                           </div>
-                          {permissions.canManageSpecializations && (
+                          {permissions.canDeleteSpecializations && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -265,7 +267,7 @@ export default function Sidebar({
                         </div>
                       ))}
 
-                      {permissions.canManageSpecializations &&
+                      {permissions.canCreateSpecializations &&
                         (addingSpecTo === school.id ? (
                           <form
                             onSubmit={(e) => handleAddSpec(e, school.id)}

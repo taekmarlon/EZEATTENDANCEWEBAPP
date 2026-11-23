@@ -39,7 +39,7 @@ export default function ReportsView({
   defaultSchoolId: string | null;
   defaultSpecId: string | null;
 }) {
-  const { schools, systemSettings } = useStore();
+  const { schools, systemSettings, permissions } = useStore();
   const { showToast } = useToast();
 
   const [schoolFilter, setSchoolFilter] = useState<string>(defaultSchoolId || 'all');
@@ -340,31 +340,33 @@ export default function ReportsView({
               Attendance trends, rubric averages, student scorecards, and print-ready exports.
             </p>
           </div>
-          <div className="no-print flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={handleExportReportCSV}
-              disabled={filteredRows.length === 0}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              <Download size={14} /> Export CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!triggerPrintReport()) {
-                  showToast(
-                    'System printing is unavailable in the Android app. Use Export CSV or open in Chrome to save PDF.',
-                    'info'
-                  );
-                }
-              }}
-              disabled={filteredRows.length === 0}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              <Printer size={14} /> Print / Save PDF
-            </button>
-          </div>
+          {permissions.canExportReports && (
+            <div className="no-print flex items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={handleExportReportCSV}
+                disabled={filteredRows.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                <Download size={14} /> Export CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!triggerPrintReport()) {
+                    showToast(
+                      'System printing is unavailable in the Android app. Use Export CSV or open in Chrome to save PDF.',
+                      'info'
+                    );
+                  }
+                }}
+                disabled={filteredRows.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                <Printer size={14} /> Print / Save PDF
+              </button>
+            </div>
+          )}
         </div>
 
         {/* School Branding Banner when scoped to a single school */}

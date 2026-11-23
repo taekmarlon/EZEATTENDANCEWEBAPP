@@ -22,6 +22,22 @@ export interface ManagedUser extends UserProfile {
   assignments: TeacherAssignment[];
 }
 
+export interface DirectorPermissions {
+  canCreateSchools: boolean;
+  canEditSchools: boolean;
+  canDeleteSchools: boolean;
+  canCreateSpecializations: boolean;
+  canEditSpecializations: boolean;
+  canDeleteSpecializations: boolean;
+  canAssignTeachers: boolean;
+  canManageStudents: boolean;
+  canDeleteStudents: boolean;
+  canManageAttendanceAndRubrics: boolean;
+  canConfigureRubrics: boolean;
+  canDeleteEvaluationsOrCriteria: boolean;
+  canExportReports: boolean;
+}
+
 export interface CustomStudentField {
   id: string;
   label: string;
@@ -38,6 +54,7 @@ export interface SystemSettings {
   rubricLabels: Record<string, string>;
   customStudentFields: CustomStudentField[];
   directorCanEdit: boolean;
+  directorPermissions?: DirectorPermissions;
 }
 
 export interface AuditLogEntry {
@@ -79,11 +96,18 @@ export interface Student {
   evaluations: RubricEvaluation[];
 }
 
+export interface CoTeacherSummary {
+  id: string;
+  fullName: string;
+  avatarUrl?: string;
+}
+
 export interface Specialization {
   id: string;
   name: string;
   teacherName?: string;
   teacherPhoto?: string;
+  coTeachers?: CoTeacherSummary[];
   students: Student[];
   rubricCriteria: RubricCriterion[];
 }
@@ -128,7 +152,7 @@ export interface QueryPreset {
   sortDir: 'asc' | 'desc';
 }
 
-export type WorkspaceTab = 'roster' | 'rubrics' | 'reports' | 'query' | 'admin';
+export type WorkspaceTab = 'roster' | 'rubrics' | 'teachers' | 'reports' | 'query' | 'admin';
 
 export interface StudentProfileInput {
   name: string;

@@ -1,5 +1,6 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, X } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -8,6 +9,7 @@ interface ConfirmModalProps {
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'primary';
+  requireDeleteConfirmation?: boolean;
   isBusy?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
@@ -20,13 +22,27 @@ export default function ConfirmModal({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   variant = 'danger',
+  requireDeleteConfirmation,
   isBusy = false,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const auth = useAuth();
+  const [typedWord, setTypedWord] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setTypedWord('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const isDanger = variant === 'danger';
+  const role = auth?.profile?.role;
+  const needsDeleteWord =
+    requireDeleteConfirmation ?? (isDanger && (role === 'admin' || role === 'director'));
+  const isConfirmedPhrase = !needsDeleteWord || typedWord.trim() === 'DELETE';
 
   return (
     <div
@@ -58,7 +74,28 @@ export default function ConfirmModal({
             <X size={18} />
           </button>
         </div>
-        <div className="p-5 text-slate-600 text-sm leading-relaxed">{message}</div>
+        <div className="p-5 text-slate-600 text-sm leading-relaxed space-y-4">
+          <div>{message}</div>
+          {needsDeleteWord && (
+            <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-lg space-y-2">
+              <label
+                htmlFor="confirm-delete-word"
+                className="block text-xs font-semibold text-rose-900"
+              >
+                Type <span className="font-mono font-bold">DELETE</span> to confirm permanent removal
+              </label>
+              <input
+                id="confirm-delete-word"
+                type="text"
+                autoComplete="off"
+                value={typedWord}
+                onChange={(e) => setTypedWord(e.target.value)}
+                placeholder="DELETE"
+                className="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+              />
+            </div>
+          )}
+        </div>
         <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex justify-end gap-2.5">
           <button
             type="button"
@@ -70,8 +107,9 @@ export default function ConfirmModal({
           </button>
           <button
             type="button"
-            disabled={isBusy}
+            disabled={isBusy || !isConfirmedPhrase}
             onClick={async () => {
+              if (!isConfirmedPhrase) return;
               await onConfirm();
               onCancel();
             }}

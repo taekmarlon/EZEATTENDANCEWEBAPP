@@ -103,4 +103,40 @@ describe('RBAC permissions & specialization scoping', () => {
     expect(adminPerms.canManageUsersAndSettings).toBe(true);
     expect(adminPerms.canManageSchools).toBe(true);
   });
+
+  it('enforces granular Director permission toggles independently while Admin keeps full access', () => {
+    const customSettings = {
+      ...DEFAULT_SYSTEM_SETTINGS,
+      directorCanEdit: true,
+      directorPermissions: {
+        canCreateSchools: false,
+        canEditSchools: true,
+        canDeleteSchools: false,
+        canCreateSpecializations: false,
+        canEditSpecializations: true,
+        canDeleteSpecializations: false,
+        canAssignTeachers: true,
+        canManageStudents: true,
+        canDeleteStudents: false,
+        canManageAttendanceAndRubrics: true,
+        canConfigureRubrics: false,
+        canDeleteEvaluationsOrCriteria: false,
+        canExportReports: false,
+      },
+    };
+
+    const dir = getRolePermissions('director', customSettings);
+    expect(dir.canCreateSchools).toBe(false);
+    expect(dir.canEditSchools).toBe(true);
+    expect(dir.canDeleteSchools).toBe(false);
+    expect(dir.canAssignTeachersToSpecializations).toBe(true);
+    expect(dir.canViewTeacherRoster).toBe(true);
+    expect(dir.canDeleteStudents).toBe(false);
+    expect(dir.canExportReports).toBe(false);
+
+    const adm = getRolePermissions('admin', customSettings);
+    expect(adm.canCreateSchools).toBe(true);
+    expect(adm.canDeleteSchools).toBe(true);
+    expect(adm.canExportReports).toBe(true);
+  });
 });

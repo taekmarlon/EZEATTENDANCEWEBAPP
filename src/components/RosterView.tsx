@@ -200,10 +200,15 @@ export default function RosterView({ school, spec }: RosterViewProps) {
               />
               <div>
                 <div className="text-xs font-medium text-slate-500">
-                  Specialization Teacher · {spec.name}
+                  {spec.coTeachers && spec.coTeachers.length > 1
+                    ? 'Co-Teachers'
+                    : 'Specialization Teacher'}{' '}
+                  · {spec.name}
                 </div>
                 <div className="text-sm font-bold text-slate-900 mt-0.5">
-                  {spec.teacherName || 'No teacher assigned yet'}
+                  {spec.coTeachers && spec.coTeachers.length > 0
+                    ? spec.coTeachers.map((t) => t.fullName).join(' & ')
+                    : spec.teacherName || 'No teacher assigned yet'}
                 </div>
               </div>
             </div>
@@ -237,14 +242,16 @@ export default function RosterView({ school, spec }: RosterViewProps) {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            disabled={spec.students.length === 0}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold text-xs transition-colors disabled:opacity-50 whitespace-nowrap"
-          >
-            <Download size={14} /> Export CSV
-          </button>
+          {permissions.canExportReports && (
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              disabled={spec.students.length === 0}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold text-xs transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              <Download size={14} /> Export CSV
+            </button>
+          )}
           {permissions.canManageStudentsAndAttendance && (
             <button
               type="button"
@@ -361,7 +368,7 @@ export default function RosterView({ school, spec }: RosterViewProps) {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      title={permissions.canManageStudentsAndAttendance ? 'Mark attendance' : 'View attendance'}
+                      title={permissions.canLogAttendanceAndGrade ? 'Mark attendance' : 'View attendance'}
                       onClick={(e) => {
                         e.stopPropagation();
                         setActiveStudentId(student.id);
@@ -371,30 +378,30 @@ export default function RosterView({ school, spec }: RosterViewProps) {
                       <CalendarCheck size={16} />
                     </button>
                     {permissions.canManageStudentsAndAttendance && (
-                      <>
-                        <button
-                          type="button"
-                          title="Edit student profile"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingStudent(student);
-                          }}
-                          className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          title="Delete student"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeletingStudent(student);
-                          }}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        title="Edit student profile"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingStudent(student);
+                        }}
+                        className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                    {permissions.canDeleteStudents && (
+                      <button
+                        type="button"
+                        title="Delete student"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingStudent(student);
+                        }}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -443,7 +450,7 @@ export default function RosterView({ school, spec }: RosterViewProps) {
           specId={spec.id}
           student={activeStudent}
           defaultTeacherName={spec.teacherName}
-          readOnly={!permissions.canManageStudentsAndAttendance}
+          readOnly={!permissions.canLogAttendanceAndGrade}
           onClose={() => setActiveStudentId(null)}
         />
       )}

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { loadUserAccessContext, signInWithRolePortal } from './supabaseAuth';
+import { loadUserAccessContext, signInWithRolePortal, updateOwnPassword } from './supabaseAuth';
 
 const mockSignInWithPassword = vi.fn();
 const mockSignOut = vi.fn();
+const mockGetUser = vi.fn();
+const mockUpdateUser = vi.fn();
 const mockProfileSelect = vi.fn();
 const mockAssignmentsSelect = vi.fn();
 const mockRpc = vi.fn();
@@ -13,6 +15,8 @@ vi.mock('../lib/supabase', () => ({
     auth: {
       signInWithPassword: (...args: unknown[]) => mockSignInWithPassword(...args),
       signOut: (...args: unknown[]) => mockSignOut(...args),
+      getUser: (...args: unknown[]) => mockGetUser(...args),
+      updateUser: (...args: unknown[]) => mockUpdateUser(...args),
     },
     rpc: (...args: unknown[]) => mockRpc(...args),
     from: (table: string) => {
@@ -155,5 +159,27 @@ describe('supabaseAuth 3-role portal login', () => {
     await expect(loadUserAccessContext('u-denied')).rejects.toThrow(
       /permission denied for table profiles.*004_profile_recovery\.sql/i
     );
+  });
+
+  it('verifies current password before updating own password in Supabase Auth', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 't-1', email: 't@school.edu' } }, error: null });
+    mockSignInWithPassword.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: 'Invalid login credentials' },
+    });
+
+    await expect(updateOwnPassword('wrongpass', 'newpass123')).rejects.toThrow(
+      /current password is incorrect/i
+    );
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+
+    mockSignInWithPassword.mockResolvedValueOnce({
+      data: { user: { id: 't-1', email: 't@school.edu' } },
+      error: null,
+    });
+    mockUpdateUser.mockResolvedValueOnce({ data: { user: { id: 't-1' } }, error: null });
+
+    await updateOwnPassword('oldpass123', 'newpass123');
+    expect(mockUpdateUser).toHaveBeenCalledWith({ password: 'newpass123' });
   });
 });

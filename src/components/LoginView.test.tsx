@@ -29,6 +29,7 @@ describe('LoginView 3-role portal selector', () => {
       </ToastProvider>
     );
 
+    expect(screen.queryByText(/First-time setup or self-register/i)).toBeNull();
     expect(screen.getByRole('button', { name: /^Teacher$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Director$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Admin$/i })).toBeInTheDocument();

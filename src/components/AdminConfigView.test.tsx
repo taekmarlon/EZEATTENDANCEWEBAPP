@@ -68,6 +68,8 @@ vi.mock('../store', () => ({
     updateSystemSettings: mockUpdateSystemSettings,
     updateManagedUserAccess: mockUpdateUserAssignments,
     createManagedUserAccount: mockCreateManagedUserAccount,
+    resetUserPassword: vi.fn(),
+    deleteManagedUser: vi.fn(),
     importLegacyJsonToCloud: vi.fn(),
     refreshWorkspace: vi.fn(),
   }),
@@ -115,7 +117,10 @@ describe('AdminConfigView', () => {
     fireEvent.change(screen.getByPlaceholderText(/teacher@school\.edu/i), {
       target: { value: 'rachellemanalili@gmail.com' },
     });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), {
+    fireEvent.change(screen.getByLabelText(/^Initial Password/i), {
+      target: { value: 'password123' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Confirm Password/i), {
       target: { value: 'password123' },
     });
 
@@ -136,5 +141,53 @@ describe('AdminConfigView', () => {
         { schoolId: 'sch-2', specializationId: 'sp-4' },
       ],
     });
+  });
+
+  it('blocks user creation on mismatched Confirm Password and supports Global Directory search and granular Director toggles', () => {
+    mockCreateManagedUserAccount.mockClear();
+
+    render(
+      <ToastProvider>
+        <AdminConfigView />
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Add User Account/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Mr\. Carlos Reyes/i), {
+      target: { value: 'Mismatch User' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/teacher@school\.edu/i), {
+      target: { value: 'mismatch@school.edu' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Initial Password/i), {
+      target: { value: 'password123' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Confirm Password/i), {
+      target: { value: 'different123' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Create Account/i }));
+    expect(mockCreateManagedUserAccount).not.toHaveBeenCalled();
+
+    // Global Directory search
+    fireEvent.click(screen.getByRole('button', { name: /Global Directory/i }));
+    expect(screen.getByText('STEM, Arts')).toBeInTheDocument();
+    expect(screen.getByText('ICT, ABM')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Search all schools/i), {
+      target: { value: 'North' },
+    });
+    expect(screen.queryByText('STEM, Arts')).toBeNull();
+    expect(screen.getByText('ICT, ABM')).toBeInTheDocument();
+
+    // Granular Director Permissions toggle
+    fireEvent.click(screen.getByRole('button', { name: /System Customization/i }));
+    const delSchoolToggle = screen.getByLabelText(/Delete Schools/i);
+    fireEvent.click(delSchoolToggle);
+    fireEvent.click(screen.getByRole('button', { name: /Save System Settings/i }));
+    expect(mockUpdateSystemSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        directorPermissions: expect.objectContaining({ canDeleteSchools: false }),
+      })
+    );
   });
 });

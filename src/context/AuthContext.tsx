@@ -15,6 +15,7 @@ import {
   signOutSession,
   signUpAccount,
   subscribeAuthState,
+  updateOwnPassword,
 } from '../services/supabaseAuth';
 import { TeacherAssignment, UserProfile, UserRole } from '../types';
 
@@ -32,6 +33,7 @@ interface AuthContextType {
     fullName: string
   ) => Promise<{ ok: boolean; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  changeOwnPassword?: (currentPassword: string, newPassword: string) => Promise<void>;
   refreshAccessContext?: () => Promise<void>;
   clearAuthError: () => void;
 }
@@ -144,6 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
+  const changeOwnPassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await updateOwnPassword(currentPassword, newPassword);
+  }, []);
+
   const refreshAccessContext = useCallback(async () => {
     if (!isSupabaseConfigured || !profile?.id) return;
     const bundle = await loadUserAccessContext(profile.id);
@@ -162,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       signOut,
+      changeOwnPassword,
       refreshAccessContext,
       clearAuthError,
     }),
@@ -174,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       signOut,
+      changeOwnPassword,
       refreshAccessContext,
       clearAuthError,
     ]
