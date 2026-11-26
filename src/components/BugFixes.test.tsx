@@ -256,4 +256,69 @@ describe('UI bug fixes & school logo features', () => {
       })
     );
   });
+
+  it('RosterView renders Face Check-In button and Face ID badges for enrolled students, and StudentFormModal exposes Face Enrollment controls', () => {
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`;
+
+    const enrolledSpec: Specialization = {
+      id: 'spec-face',
+      name: 'Piano',
+      teacherName: 'Ms. Reyes',
+      rubricCriteria: [],
+      students: [
+        {
+          id: 'st-face-1',
+          name: 'Ana Bautista',
+          rollNo: '',
+          gradeLevel: 'Grade 6',
+          gender: 'Female',
+          contactNo: '',
+          teacherName: 'Ms. Reyes',
+          photo: 'data:image/jpeg;base64,portrait',
+          faceDescriptors: [new Array(1024).fill(0.1)],
+          attendance: { [todayStr]: 'Present' },
+          attendanceMeta: { [todayStr]: { method: 'face_kiosk', confidence: 0.94 } },
+          evaluations: [],
+        },
+      ],
+    };
+    const school: School = {
+      id: 'sch-face',
+      name: 'Music Academy',
+      specializations: [enrolledSpec],
+    };
+
+    render(
+      <ToastProvider>
+        <StoreProvider>
+          <RosterView school={school} spec={enrolledSpec} />
+        </StoreProvider>
+      </ToastProvider>
+    );
+
+    expect(screen.getByRole('button', { name: /Face Check-In/i })).toBeInTheDocument();
+    expect(screen.getByText('Face ID')).toBeInTheDocument();
+    expect(screen.getByText('Face Today')).toBeInTheDocument();
+
+    render(
+      <ToastProvider>
+        <StoreProvider>
+          <StudentFormModal
+            isOpen
+            mode="edit"
+            initialStudent={enrolledSpec.students[0]}
+            onSave={vi.fn()}
+            onClose={vi.fn()}
+          />
+        </StoreProvider>
+      </ToastProvider>
+    );
+
+    expect(screen.getByRole('button', { name: /Add Camera Angle \(1\/3\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Clear Face Data/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Use Portrait Photo/i })).toBeInTheDocument();
+  });
 });

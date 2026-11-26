@@ -217,4 +217,40 @@ describe('AdminConfigView', () => {
       })
     );
   });
+
+  it('allows Admins to configure Face Recognition thresholds, anti-spoofing, and active blink challenge settings', () => {
+    mockUpdateSystemSettings.mockClear();
+
+    render(
+      <ToastProvider>
+        <AdminConfigView />
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /System Customization/i }));
+
+    const blinkToggle = screen.getByLabelText(/Require Active Eye-Blink Confirmation/i);
+    expect(blinkToggle).not.toBeChecked();
+    fireEvent.click(blinkToggle);
+
+    const cooldownInput = screen.getByLabelText(/Re-Scan Cooldown/i);
+    fireEvent.change(cooldownInput, { target: { value: '10' } });
+
+    const thresholdSlider = screen.getByLabelText(/Face Match Sensitivity Threshold/i);
+    fireEvent.change(thresholdSlider, { target: { value: '0.68' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save System Settings/i }));
+
+    expect(mockUpdateSystemSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        faceRecognitionSettings: expect.objectContaining({
+          enabled: true,
+          requireLiveness: true,
+          requireBlinkChallenge: true,
+          cooldownSeconds: 10,
+          matchThreshold: 0.68,
+        }),
+      })
+    );
+  });
 });

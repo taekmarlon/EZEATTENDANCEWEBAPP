@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Student, StudentProfileInput } from '../types';
 import { PhotoUploader } from './Avatar';
+import FaceEnrollmentControl from './FaceEnrollmentControl';
 import { useStore } from '../store';
 
 interface StudentFormModalProps {
@@ -61,6 +62,7 @@ export default function StudentFormModal({
   const [gender, setGender] = useState('');
   const [contactNo, setContactNo] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(undefined);
+  const [faceDescriptors, setFaceDescriptors] = useState<number[][]>([]);
   const [customFields, setCustomFields] = useState<Record<string, string>>({});
 
   const resolvedTeacherName = (
@@ -76,6 +78,7 @@ export default function StudentFormModal({
       setGender(initialStudent.gender || '');
       setContactNo(initialStudent.contactNo || '');
       setPhoto(initialStudent.photo);
+      setFaceDescriptors(initialStudent.faceDescriptors || []);
       setCustomFields(initialStudent.customFields || {});
     } else {
       setName('');
@@ -84,6 +87,7 @@ export default function StudentFormModal({
       setGender('');
       setContactNo('');
       setPhoto(undefined);
+      setFaceDescriptors([]);
       setCustomFields({});
     }
   }, [isOpen, mode, initialStudent]);
@@ -102,6 +106,12 @@ export default function StudentFormModal({
       teacherName: resolvedTeacherName,
       photo,
       teacherPhoto: mode === 'edit' ? initialStudent?.teacherPhoto : undefined,
+      faceDescriptors:
+        mode === 'edit'
+          ? faceDescriptors
+          : faceDescriptors.length > 0
+          ? faceDescriptors
+          : undefined,
       customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
     });
     onClose();
@@ -142,7 +152,7 @@ export default function StudentFormModal({
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
           {/* Student Portrait Upload */}
-          <div className="pb-5 border-b border-slate-100">
+          <div className="pb-5 border-b border-slate-100 space-y-4">
             <PhotoUploader
               label="Student Picture"
               nameForFallback={name || 'Student'}
@@ -150,6 +160,14 @@ export default function StudentFormModal({
               onChange={setPhoto}
               size="lg"
             />
+            {(systemSettings.faceRecognitionSettings?.enabled ?? true) && (
+              <FaceEnrollmentControl
+                studentName={name || 'Student'}
+                portraitSrc={photo}
+                descriptors={faceDescriptors}
+                onChange={setFaceDescriptors}
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

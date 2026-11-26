@@ -20,12 +20,17 @@ import {
   Lock,
   User,
   X,
+  ScanFace,
+  Shield,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { DEFAULT_DIRECTOR_PERMISSIONS } from '../services/permissions';
+import {
+  DEFAULT_DIRECTOR_PERMISSIONS,
+  DEFAULT_FACE_RECOGNITION_SETTINGS,
+} from '../services/permissions';
 import {
   DirectorPermissions,
   ManagedUser,
@@ -1210,6 +1215,175 @@ export default function AdminConfigView() {
               </div>
             )}
           </div>
+
+          {/* Face Recognition Attendance & Anti-Spoofing */}
+          {(() => {
+            const faceConfig =
+              draftSettings.faceRecognitionSettings || DEFAULT_FACE_RECOGNITION_SETTINGS;
+            const patchFaceConfig = (
+              patch: Partial<typeof DEFAULT_FACE_RECOGNITION_SETTINGS>
+            ) =>
+              setDraftSettings((prev) => ({
+                ...prev,
+                faceRecognitionSettings: {
+                  ...(prev.faceRecognitionSettings || DEFAULT_FACE_RECOGNITION_SETTINGS),
+                  ...patch,
+                },
+              }));
+
+            return (
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-violet-100 text-violet-700 flex items-center justify-center shrink-0 mt-0.5">
+                    <ScanFace size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">
+                      Face Recognition Attendance &amp; Anti-Spoofing
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Runs 100% on-device (offline WebGL/CPU) across Android APK, Web, and iOS PWA
+                      with zero per-scan API fees.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="inline-flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={faceConfig.enabled}
+                    onChange={(e) => patchFaceConfig({ enabled: e.target.checked })}
+                  />
+                  Enable On-Device Face Recognition Attendance
+                </label>
+
+                {faceConfig.enabled && (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label
+                          htmlFor="cfg-face-threshold"
+                          className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5"
+                        >
+                          <span>Face Match Sensitivity Threshold</span>
+                          <span className="font-mono text-violet-700">
+                            {Math.round(faceConfig.matchThreshold * 100)}%
+                          </span>
+                        </label>
+                        <input
+                          id="cfg-face-threshold"
+                          type="range"
+                          min={0.5}
+                          max={0.8}
+                          step={0.01}
+                          value={faceConfig.matchThreshold}
+                          onChange={(e) =>
+                            patchFaceConfig({
+                              matchThreshold: Math.min(
+                                0.85,
+                                Math.max(0.45, Number(e.target.value) || 0.62)
+                              ),
+                            })
+                          }
+                          className="w-full accent-violet-600"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Recommended: 62%. Higher values make verification stricter.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="cfg-face-cooldown"
+                          className="block text-xs font-semibold text-slate-700 mb-1.5"
+                        >
+                          Re-Scan Cooldown (Seconds)
+                        </label>
+                        <input
+                          id="cfg-face-cooldown"
+                          type="number"
+                          min={2}
+                          max={60}
+                          value={faceConfig.cooldownSeconds}
+                          onChange={(e) =>
+                            patchFaceConfig({
+                              cooldownSeconds: Math.min(
+                                60,
+                                Math.max(2, Number(e.target.value) || 15)
+                              ),
+                            })
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-mono"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Prevents repeat chime/write triggers while a student remains in camera
+                          view.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <label className="flex items-start gap-2.5 text-xs text-slate-700 cursor-pointer bg-white border border-slate-200 rounded-lg px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={faceConfig.requireLiveness}
+                          onChange={(e) => patchFaceConfig({ requireLiveness: e.target.checked })}
+                        />
+                        <span>
+                          <strong className="block text-slate-900">
+                            Passive Liveness &amp; Anti-Spoof Guard
+                          </strong>
+                          <span className="text-[11px] text-slate-500">
+                            Blocks printed photos and phone screens automatically (under 1.5s
+                            walk-up scan).
+                          </span>
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 text-xs text-slate-700 cursor-pointer bg-white border border-slate-200 rounded-lg px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={faceConfig.requireBlinkChallenge}
+                          onChange={(e) =>
+                            patchFaceConfig({ requireBlinkChallenge: e.target.checked })
+                          }
+                        />
+                        <span>
+                          <strong className="block text-slate-900">
+                            Require Active Eye-Blink Confirmation
+                          </strong>
+                          <span className="text-[11px] text-slate-500">
+                            Prompts each student to blink naturally before marking Present.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={faceConfig.soundEnabled}
+                        onChange={(e) => patchFaceConfig({ soundEnabled: e.target.checked })}
+                      />
+                      Play Audio Confirmation Chime on Check-In
+                    </label>
+
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-50/80 border border-amber-200 px-3 py-2.5 text-[11px] text-amber-900">
+                      <Shield size={14} className="text-amber-700 shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Kiosk Best Practices:</strong> Mount the phone/tablet at eye level in
+                        even front lighting (avoid bright doorways behind students), and enable{' '}
+                        <strong>Screen Pinning</strong> (Android) or{' '}
+                        <strong>Guided Access</strong> (iOS) in Kiosk Mode.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Custom Student Fields */}
           <div className="pt-4 border-t border-slate-100 space-y-3">

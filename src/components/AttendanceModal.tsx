@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Check, X as XIcon, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, X as XIcon, Trash2, ScanFace } from 'lucide-react';
 import {
   format,
   addMonths,
@@ -146,6 +146,8 @@ export default function AttendanceModal({
 
               const dateStr = format(day, 'yyyy-MM-dd');
               const status = student.attendance[dateStr];
+              const meta = student.attendanceMeta?.[dateStr];
+              const isFaceVerified = status === 'Present' && meta?.method === 'face_kiosk';
               const isToday = isSameDay(day, new Date());
               const isActive = activeCell && isSameDay(activeCell, day);
               const colIdx = index % 7;
@@ -161,6 +163,15 @@ export default function AttendanceModal({
               return (
                 <div
                   key={dateStr}
+                  title={
+                    isFaceVerified
+                      ? `Face Kiosk Verified${
+                          typeof meta?.confidence === 'number'
+                            ? ` (${Math.round(meta.confidence * 100)}%)`
+                            : ''
+                        }`
+                      : undefined
+                  }
                   className={`h-12 border-b border-r border-slate-200 flex flex-col items-center justify-center relative transition-colors ${
                     readOnly ? '' : 'cursor-pointer'
                   } ${
@@ -179,8 +190,8 @@ export default function AttendanceModal({
                   </span>
 
                   {status === 'Present' && (
-                    <span className="text-emerald-600 font-bold text-[11px] leading-none mt-0.5">
-                      P
+                    <span className="inline-flex items-center gap-0.5 text-emerald-600 font-bold text-[11px] leading-none mt-0.5">
+                      P{isFaceVerified && <ScanFace size={9} className="text-violet-600" />}
                     </span>
                   )}
                   {status === 'Absent' && (

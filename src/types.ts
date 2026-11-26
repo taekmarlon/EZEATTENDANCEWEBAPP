@@ -45,6 +45,15 @@ export interface CustomStudentField {
   required?: boolean;
 }
 
+export interface FaceRecognitionSettings {
+  enabled: boolean;
+  matchThreshold: number;
+  requireLiveness: boolean;
+  requireBlinkChallenge: boolean;
+  cooldownSeconds: number;
+  soundEnabled: boolean;
+}
+
 export interface SystemSettings {
   portalName: string;
   primaryColor: string;
@@ -55,6 +64,7 @@ export interface SystemSettings {
   customStudentFields: CustomStudentField[];
   directorCanEdit: boolean;
   directorPermissions?: DirectorPermissions;
+  faceRecognitionSettings?: FaceRecognitionSettings;
 }
 
 export interface AuditLogEntry {
@@ -81,6 +91,13 @@ export interface RubricEvaluation {
   scores: Record<string, number>; // criterionId -> score
 }
 
+export type AttendanceVerificationMethod = 'manual' | 'face_kiosk';
+
+export interface AttendanceVerificationMeta {
+  method: AttendanceVerificationMethod;
+  confidence?: number;
+}
+
 export interface Student {
   id: string;
   name: string;
@@ -91,8 +108,11 @@ export interface Student {
   teacherName: string;
   photo?: string;
   teacherPhoto?: string;
+  faceDescriptors?: number[][];
+  faceEnrolledAt?: string;
   customFields?: Record<string, string>;
   attendance: Record<string, AttendanceStatus>; // date string "YYYY-MM-DD"
+  attendanceMeta?: Record<string, AttendanceVerificationMeta>;
   evaluations: RubricEvaluation[];
 }
 
@@ -163,5 +183,6 @@ export interface StudentProfileInput {
   teacherName: string;
   photo?: string;
   teacherPhoto?: string;
+  faceDescriptors?: number[][];
   customFields?: Record<string, string>;
 }

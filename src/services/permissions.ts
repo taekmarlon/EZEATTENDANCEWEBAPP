@@ -1,10 +1,20 @@
 import {
   DirectorPermissions,
+  FaceRecognitionSettings,
   School,
   SystemSettings,
   TeacherAssignment,
   UserRole,
 } from '../types';
+
+export const DEFAULT_FACE_RECOGNITION_SETTINGS: FaceRecognitionSettings = {
+  enabled: true,
+  matchThreshold: 0.62,
+  requireLiveness: true,
+  requireBlinkChallenge: false,
+  cooldownSeconds: 15,
+  soundEnabled: true,
+};
 
 export const DEFAULT_DIRECTOR_PERMISSIONS: DirectorPermissions = {
   canCreateSchools: true,
@@ -38,6 +48,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   customStudentFields: [],
   directorCanEdit: true,
   directorPermissions: DEFAULT_DIRECTOR_PERMISSIONS,
+  faceRecognitionSettings: DEFAULT_FACE_RECOGNITION_SETTINGS,
 };
 
 export function normalizeDirectorPermissions(settings: SystemSettings): DirectorPermissions {

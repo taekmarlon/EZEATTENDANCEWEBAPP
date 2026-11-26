@@ -1,9 +1,11 @@
 import { createEphemeralAuthClient, requireSupabase } from '../lib/supabase';
 import {
   AttendanceStatus,
+  AttendanceVerificationMeta,
   AuditLogEntry,
   CoTeacherSummary,
   DirectorPermissions,
+  FaceRecognitionSettings,
   ManagedUser,
   QueryPreset,
   RubricEvaluation,
@@ -16,9 +18,25 @@ import {
   UserProfile,
   UserRole,
 } from '../types';
-import { DEFAULT_DIRECTOR_PERMISSIONS, DEFAULT_SYSTEM_SETTINGS } from './permissions';
+import {
+  DEFAULT_DIRECTOR_PERMISSIONS,
+  DEFAULT_FACE_RECOGNITION_SETTINGS,
+  DEFAULT_SYSTEM_SETTINGS,
+} from './permissions';
 
 const MEDIA_BUCKET = 'ez-media';
+
+export function normalizeFaceDescriptors(raw: unknown): number[][] {
+  if (!Array.isArray(raw)) return [];
+  const out: number[][] = [];
+  for (const item of raw) {
+    if (Array.isArray(item) && item.length >= 64) {
+      const vec = item.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+      if (vec.length === item.length) out.push(vec);
+    }
+  }
+  return out;
+}
 
 export interface RawWorkspaceRows {
   schools: { id: string; name: string; logo_url?: string | null }[];
@@ -48,12 +66,16 @@ export interface RawWorkspaceRows {
     teacher_name?: string | null;
     photo_url?: string | null;
     teacher_photo_url?: string | null;
+    face_descriptors?: unknown;
+    face_enrolled_at?: string | null;
     custom_fields?: Record<string, string> | null;
   }[];
   attendance: {
     student_id: string;
     attendance_date: string;
     status: string;
+    verification_method?: string | null;
+    match_confidence?: number | string | null;
   }[];
   evaluations: {
     id: string;
@@ -114,6 +136,7 @@ export function assembleWorkspaceSchools(rows: RawWorkspaceRows): School[] {
   for (const st of rows.students) {
     const spec = specMap.get(st.specialization_id);
     if (!spec) continue;
+    const faceDescriptors = normalizeFaceDescriptors(st.face_descriptors);
     const student: Student = {
       id: st.id,
       name: st.name,
@@ -124,8 +147,11 @@ export function assembleWorkspaceSchools(rows: RawWorkspaceRows): School[] {
       teacherName: st.teacher_name || spec.teacherName || '',
       photo: st.photo_url || undefined,
       teacherPhoto: st.teacher_photo_url || undefined,
+      faceDescriptors: faceDescriptors.length > 0 ? faceDescriptors : undefined,
+      faceEnrolledAt: st.face_enrolled_at || undefined,
       customFields: st.custom_fields || undefined,
       attendance: {},
+      attendanceMeta: {},
       evaluations: [],
     };
     spec.students.push(student);
@@ -137,6 +163,17 @@ export function assembleWorkspaceSchools(rows: RawWorkspaceRows): School[] {
     if (!student) continue;
     if (att.status === 'Present' || att.status === 'Absent') {
       student.attendance[att.attendance_date] = att.status;
+      if (att.verification_method === 'face_kiosk') {
+        if (!student.attendanceMeta) student.attendanceMeta = {};
+        const confNum =
+          att.match_confidence !== undefined && att.match_confidence !== null
+            ? Number(att.match_confidence)
+            : undefined;
+        student.attendanceMeta[att.attendance_date] = {
+          method: 'face_kiosk',
+          confidence: typeof confNum === 'number' && !Number.isNaN(confNum) ? confNum : undefined,
+        };
+      }
     }
   }
 
@@ -192,6 +229,13 @@ function mapSystemSettingsRow(row: Record<string, unknown> | null): SystemSettin
             ...(row.director_permissions as Partial<DirectorPermissions>),
           }
         : DEFAULT_DIRECTOR_PERMISSIONS,
+    faceRecognitionSettings:
+      row.face_recognition_settings && typeof row.face_recognition_settings === 'object'
+        ? {
+            ...DEFAULT_FACE_RECOGNITION_SETTINGS,
+            ...(row.face_recognition_settings as Partial<FaceRecognitionSettings>),
+          }
+        : DEFAULT_FACE_RECOGNITION_SETTINGS,
   };
 }
 
@@ -279,14 +323,36 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
     client
       .from('students')
       .select(
-        'id, school_id, specialization_id, name, roll_no, grade_level, gender, contact_no, teacher_name, photo_url, teacher_photo_url, custom_fields'
+        'id, school_id, specialization_id, name, roll_no, grade_level, gender, contact_no, teacher_name, photo_url, teacher_photo_url, face_descriptors, face_enrolled_at, custom_fields'
       )
       .order('name'),
-    client.from('attendance_logs').select('student_id, attendance_date, status'),
+    client
+      .from('attendance_logs')
+      .select('student_id, attendance_date, status, verification_method, match_confidence'),
     client.from('rubric_evaluations').select('id, student_id, eval_date'),
     client.from('rubric_scores').select('evaluation_id, criterion_id, score'),
     client.from('query_presets').select('id, name, is_shared, config').order('created_at'),
   ]);
+
+  // Graceful fallback if 008_face_recognition_attendance.sql has not been run yet
+  let studentsData = (studentsRes.data || []) as RawWorkspaceRows['students'];
+  if (studentsRes.error && /face_descriptors|schema cache|column/i.test(studentsRes.error.message)) {
+    const legacyStudentsRes = await client
+      .from('students')
+      .select(
+        'id, school_id, specialization_id, name, roll_no, grade_level, gender, contact_no, teacher_name, photo_url, teacher_photo_url, custom_fields'
+      )
+      .order('name');
+    studentsData = (legacyStudentsRes.data || []) as RawWorkspaceRows['students'];
+  }
+
+  let attData = (attRes.data || []) as RawWorkspaceRows['attendance'];
+  if (attRes.error && /verification_method|match_confidence|schema cache|column/i.test(attRes.error.message)) {
+    const legacyAttRes = await client
+      .from('attendance_logs')
+      .select('student_id, attendance_date, status');
+    attData = (legacyAttRes.data || []) as RawWorkspaceRows['attendance'];
+  }
 
   const presets: QueryPreset[] = (presetsRes.data || []).map((row) => ({
     ...(row.config as Omit<QueryPreset, 'id' | 'name' | 'isShared'>),
@@ -362,8 +428,8 @@ export async function fetchWorkspaceSnapshot(profile: UserProfile): Promise<Work
     schools: schoolsRes.data || [],
     specializations: specsRes.data || [],
     criteria: criteriaRes.data || [],
-    students: studentsRes.data || [],
-    attendance: attRes.data || [],
+    students: studentsData,
+    attendance: attData,
     evaluations: evalsRes.data || [],
     scores: scoresRes.data || [],
     coTeachersBySpec,
@@ -546,7 +612,7 @@ export async function dbUpsertStudent(
     uploadMediaImageIfNeeded(`students/${studentId}-teacher`, profile.teacherPhoto),
   ]);
 
-  const row = {
+  const baseRow = {
     id: studentId,
     school_id: schoolId,
     specialization_id: specId,
@@ -562,23 +628,83 @@ export async function dbUpsertStudent(
     updated_at: new Date().toISOString(),
   };
 
+  const facePatch =
+    profile.faceDescriptors !== undefined
+      ? {
+          face_descriptors: profile.faceDescriptors,
+          face_enrolled_at:
+            profile.faceDescriptors.length > 0 ? new Date().toISOString() : null,
+        }
+      : {};
+
+  const row = { ...baseRow, ...facePatch };
+
   if (mode === 'create') {
     const { error } = await client
       .from('students')
       .insert({ ...row, created_by: actor?.id ?? null });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (profile.faceDescriptors !== undefined && /face_descriptors|schema cache|column/i.test(error.message)) {
+        const { error: fallbackErr } = await client
+          .from('students')
+          .insert({ ...baseRow, created_by: actor?.id ?? null });
+        if (fallbackErr) throw new Error(fallbackErr.message);
+      } else {
+        throw new Error(error.message);
+      }
+    }
     await recordAuditLog(actor, 'CREATE_STUDENT', 'students', studentId, schoolId, {
       name: row.name,
     });
   } else {
     const { error } = await client.from('students').update(row).eq('id', studentId);
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (profile.faceDescriptors !== undefined && /face_descriptors|schema cache|column/i.test(error.message)) {
+        const { error: fallbackErr } = await client
+          .from('students')
+          .update(baseRow)
+          .eq('id', studentId);
+        if (fallbackErr) throw new Error(fallbackErr.message);
+      } else {
+        throw new Error(error.message);
+      }
+    }
     await recordAuditLog(actor, 'UPDATE_STUDENT', 'students', studentId, schoolId, {
       name: row.name,
     });
   }
 
   return { photoUrl, teacherPhotoUrl };
+}
+
+export async function dbUpdateStudentFaceDescriptors(
+  actor: UserProfile | null,
+  schoolId: string,
+  studentId: string,
+  descriptors: number[][]
+): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await client
+    .from('students')
+    .update({
+      face_descriptors: descriptors,
+      face_enrolled_at: descriptors.length > 0 ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', studentId);
+
+  if (error) {
+    if (/face_descriptors|schema cache|column/i.test(error.message)) {
+      throw new Error(
+        'Face enrollment requires applying supabase/migrations/008_face_recognition_attendance.sql in Supabase SQL Editor.'
+      );
+    }
+    throw new Error(error.message);
+  }
+
+  await recordAuditLog(actor, 'ENROLL_STUDENT_FACE', 'students', studentId, schoolId, {
+    sampleCount: descriptors.length,
+  });
 }
 
 export async function dbCreateStudentsBulk(
@@ -630,7 +756,8 @@ export async function dbSetAttendance(
   schoolId: string,
   studentId: string,
   date: string,
-  status: AttendanceStatus | null
+  status: AttendanceStatus | null,
+  meta?: AttendanceVerificationMeta
 ): Promise<void> {
   const client = requireSupabase();
   if (status === null) {
@@ -641,23 +768,54 @@ export async function dbSetAttendance(
       .eq('attendance_date', date);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await client.from('attendance_logs').upsert(
-      {
-        student_id: studentId,
-        school_id: schoolId,
-        attendance_date: date,
-        status,
-        marked_by: actor?.id ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'student_id,attendance_date' }
-    );
-    if (error) throw new Error(error.message);
+    const basePayload = {
+      student_id: studentId,
+      school_id: schoolId,
+      attendance_date: date,
+      status,
+      marked_by: actor?.id ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    const payload =
+      meta?.method === 'face_kiosk'
+        ? {
+            ...basePayload,
+            verification_method: 'face_kiosk',
+            match_confidence:
+              typeof meta.confidence === 'number' ? Math.round(meta.confidence * 10000) / 10000 : null,
+          }
+        : basePayload;
+
+    const { error } = await client
+      .from('attendance_logs')
+      .upsert(payload, { onConflict: 'student_id,attendance_date' });
+    if (error) {
+      if (
+        meta?.method === 'face_kiosk' &&
+        /verification_method|match_confidence|schema cache|column/i.test(error.message)
+      ) {
+        const { error: fallbackErr } = await client
+          .from('attendance_logs')
+          .upsert(basePayload, { onConflict: 'student_id,attendance_date' });
+        if (fallbackErr) throw new Error(fallbackErr.message);
+      } else {
+        throw new Error(error.message);
+      }
+    }
   }
-  await recordAuditLog(actor, 'MARK_ATTENDANCE', 'attendance_logs', studentId, schoolId, {
-    date,
-    status: status ?? 'Cleared',
-  });
+  await recordAuditLog(
+    actor,
+    meta?.method === 'face_kiosk' ? 'FACE_CHECKIN' : 'MARK_ATTENDANCE',
+    'attendance_logs',
+    studentId,
+    schoolId,
+    {
+      date,
+      status: status ?? 'Cleared',
+      ...(meta?.method ? { verificationMethod: meta.method } : {}),
+      ...(typeof meta?.confidence === 'number' ? { confidence: meta.confidence } : {}),
+    }
+  );
 }
 
 export async function dbAddRubricCriterion(
@@ -778,23 +936,34 @@ export async function dbUpdateSystemSettings(
 ): Promise<void> {
   const client = requireSupabase();
   const directorPermissions = settings.directorPermissions || DEFAULT_DIRECTOR_PERMISSIONS;
+  const faceRecognitionSettings =
+    settings.faceRecognitionSettings || DEFAULT_FACE_RECOGNITION_SETTINGS;
+  const baseRow = {
+    id: 1,
+    portal_name: settings.portalName.trim() || 'EZ Center Portal',
+    primary_color: settings.primaryColor,
+    attendance_threshold: settings.attendanceThreshold,
+    rubric_min: settings.rubricMin,
+    rubric_max: settings.rubricMax,
+    rubric_labels: settings.rubricLabels,
+    custom_student_fields: settings.customStudentFields,
+    director_can_edit: settings.directorCanEdit,
+    director_permissions: directorPermissions,
+    updated_by: actor?.id ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
   const { error } = await client
     .from('system_settings')
-    .upsert({
-      id: 1,
-      portal_name: settings.portalName.trim() || 'EZ Center Portal',
-      primary_color: settings.primaryColor,
-      attendance_threshold: settings.attendanceThreshold,
-      rubric_min: settings.rubricMin,
-      rubric_max: settings.rubricMax,
-      rubric_labels: settings.rubricLabels,
-      custom_student_fields: settings.customStudentFields,
-      director_can_edit: settings.directorCanEdit,
-      director_permissions: directorPermissions,
-      updated_by: actor?.id ?? null,
-      updated_at: new Date().toISOString(),
-    });
-  if (error) throw new Error(error.message);
+    .upsert({ ...baseRow, face_recognition_settings: faceRecognitionSettings });
+  if (error) {
+    if (/face_recognition_settings|schema cache|column/i.test(error.message)) {
+      const { error: fallbackErr } = await client.from('system_settings').upsert(baseRow);
+      if (fallbackErr) throw new Error(fallbackErr.message);
+    } else {
+      throw new Error(error.message);
+    }
+  }
   await recordAuditLog(actor, 'UPDATE_SETTINGS', 'system_settings', '1', null, {
     portalName: settings.portalName,
     attendanceThreshold: settings.attendanceThreshold,

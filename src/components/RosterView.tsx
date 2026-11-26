@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { format } from 'date-fns';
 import {
   Search,
   Plus,
@@ -12,6 +13,8 @@ import {
   Hash,
   UserCheck,
   Users,
+  ScanFace,
+  CheckCircle2,
 } from 'lucide-react';
 import { School, Specialization, Student, StudentProfileInput } from '../types';
 import { useStore } from '../store';
@@ -21,6 +24,7 @@ import ConfirmModal from './ConfirmModal';
 import AttendanceModal from './AttendanceModal';
 import StudentFormModal from './StudentFormModal';
 import CsvImportModal from './CsvImportModal';
+import FaceAttendanceModal from './FaceAttendanceModal';
 import { PortraitAvatar } from './Avatar';
 
 interface RosterViewProps {
@@ -42,15 +46,20 @@ export default function RosterView({ school, spec }: RosterViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const [isFaceScanning, setIsFaceScanning] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const faceRecognitionEnabled = systemSettings.faceRecognitionSettings?.enabled ?? true;
 
   // Reset search & local dialogs when switching specializations
   useEffect(() => {
     setSearchQuery('');
     setIsAdding(false);
     setIsImportingCsv(false);
+    setIsFaceScanning(false);
     setEditingStudent(null);
     setDeletingStudent(null);
     setActiveStudentId(null);
@@ -211,6 +220,15 @@ export default function RosterView({ school, spec }: RosterViewProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {permissions.canLogAttendanceAndGrade && faceRecognitionEnabled && (
+            <button
+              type="button"
+              onClick={() => setIsFaceScanning(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 font-semibold text-xs transition-colors whitespace-nowrap shadow-sm"
+            >
+              <ScanFace size={14} className="text-violet-300" /> Face Check-In
+            </button>
+          )}
           {permissions.canManageStudentsAndAttendance && (
             <button
               type="button"
@@ -303,9 +321,38 @@ export default function RosterView({ school, spec }: RosterViewProps) {
                     tone="slate"
                   />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-900 truncate">
-                      {student.name}
-                    </h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900 truncate">
+                        {student.name}
+                      </h3>
+                      {(student.faceDescriptors?.length || 0) > 0 && (
+                        <span
+                          title={`Face ID enrolled (${student.faceDescriptors?.length || 0} sample${
+                            (student.faceDescriptors?.length || 0) === 1 ? '' : 's'
+                          })`}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700 shrink-0"
+                        >
+                          <ScanFace size={11} />
+                          Face ID
+                        </span>
+                      )}
+                      {student.attendance[todayStr] === 'Present' &&
+                        student.attendanceMeta?.[todayStr]?.method === 'face_kiosk' && (
+                          <span
+                            title={
+                              typeof student.attendanceMeta?.[todayStr]?.confidence === 'number'
+                                ? `Verified by Face Kiosk today (${Math.round(
+                                    (student.attendanceMeta?.[todayStr]?.confidence || 0) * 100
+                                  )}%)`
+                                : 'Verified by Face Kiosk today'
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-[10px] font-semibold text-violet-700 shrink-0"
+                          >
+                            <CheckCircle2 size={11} />
+                            Face Today
+                          </span>
+                        )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1">
                       {student.rollNo && (
                         <span className="inline-flex items-center gap-1 font-mono tabular-nums text-[11px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
@@ -420,6 +467,15 @@ export default function RosterView({ school, spec }: RosterViewProps) {
         onImport={handleBulkCsvImport}
         onClose={() => setIsImportingCsv(false)}
       />
+
+      {faceRecognitionEnabled && (
+        <FaceAttendanceModal
+          isOpen={isFaceScanning}
+          school={school}
+          spec={spec}
+          onClose={() => setIsFaceScanning(false)}
+        />
+      )}
 
       <ConfirmModal
         isOpen={!!deletingStudent}

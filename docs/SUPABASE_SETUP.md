@@ -11,7 +11,7 @@
 4. For production on **Vercel**, add those exact same two variables under **Project Settings → Environment Variables**.
 
 ## 2. Apply Database Migrations
-Run the seven migration files in order in the **Supabase SQL Editor** (or via `supabase db push`):
+Run the eight migration files in order in the **Supabase SQL Editor** (or via `supabase db push`):
 1. `supabase/migrations/001_schema.sql`
 2. `supabase/migrations/002_rls_policies.sql`
 3. `supabase/migrations/003_seed_defaults.sql`
@@ -19,10 +19,12 @@ Run the seven migration files in order in the **Supabase SQL Editor** (or via `s
 5. `supabase/migrations/005_upgrade_rbac_and_coteaching.sql`
 6. `supabase/migrations/006_auto_seed_default_specializations.sql`
 7. `supabase/migrations/007_profile_self_update_and_optional_roll.sql`
+8. `supabase/migrations/008_face_recognition_attendance.sql`
 
 > **RBAC, Co-Teaching & Security:** `005_upgrade_rbac_and_coteaching.sql` adds granular `director_permissions` enforcement in RLS, allows Directors (when enabled) to assign Teachers to specializations, enforces a max of **2 co-teachers per specialization**, and enables co-teacher listing.
 > **Default Specializations Seed & Trigger:** `006_auto_seed_default_specializations.sql` backfills the 17 standard specializations across all existing schools and installs a trigger to auto-create them for every future school.
 > **Self Profile & Optional Roll ID:** `007_profile_self_update_and_optional_roll.sql` sets `students.roll_no` default to `''` and adds `public.update_my_profile` so logged-in Teachers can save their own name and profile photo securely.
+> **Face Recognition Attendance:** `008_face_recognition_attendance.sql` adds `students.face_descriptors` / `face_enrolled_at`, `attendance_logs.verification_method` / `match_confidence`, and `system_settings.face_recognition_settings`.
 
 ## 3. Deploy the `admin-users` Edge Function & Auth Settings
 1. Open **Authentication → Providers → Email** and turn **OFF** **Confirm email** so all users can log in immediately on first login.

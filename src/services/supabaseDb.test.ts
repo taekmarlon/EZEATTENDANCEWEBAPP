@@ -12,6 +12,8 @@ const mockSchoolsInsert = vi.fn();
 const mockSpecsSelect = vi.fn();
 const mockSpecsInsert = vi.fn();
 const mockSpecsUpdate = vi.fn();
+const mockStudentsUpdate = vi.fn();
+const mockAttendanceUpsert = vi.fn();
 
 vi.mock('../lib/supabase', () => ({
   isSupabaseConfigured: true,
@@ -45,6 +47,18 @@ vi.mock('../lib/supabase', () => ({
           update: (...args: unknown[]) => ({
             eq: () => mockSpecsUpdate(...args),
           }),
+        };
+      }
+      if (table === 'students') {
+        return {
+          update: (...args: unknown[]) => ({
+            eq: () => mockStudentsUpdate(...args),
+          }),
+        };
+      }
+      if (table === 'attendance_logs') {
+        return {
+          upsert: (...args: unknown[]) => mockAttendanceUpsert(...args),
         };
       }
       if (table === 'teacher_school_assignments') {
@@ -83,6 +97,8 @@ import {
   dbAssignSpecializationTeachers,
   dbCreateManagedUser,
   dbImportSchools,
+  dbSetAttendance,
+  dbUpdateStudentFaceDescriptors,
 } from './supabaseDb';
 
 describe('supabaseDb workspace assembler', () => {
@@ -328,5 +344,115 @@ describe('dbCreateManagedUser admin provisioning', () => {
       name: 'Coding',
       teacher_name: '',
     });
+  });
+
+  it('assembles face_descriptors and attendance verification_method/match_confidence metadata', () => {
+    const sampleVec = new Array(1024).fill(0.15);
+    const assembled = assembleWorkspaceSchools({
+      schools: [{ id: 'sch-1', name: 'Lincoln High', logo_url: null }],
+      specializations: [
+        {
+          id: 'sp-1',
+          school_id: 'sch-1',
+          name: 'Piano',
+          teacher_name: 'Ms. Cruz',
+          teacher_photo_url: null,
+        },
+      ],
+      criteria: [],
+      students: [
+        {
+          id: 'st-1',
+          school_id: 'sch-1',
+          specialization_id: 'sp-1',
+          name: 'Maria Santos',
+          roll_no: '',
+          grade_level: 'Grade 10',
+          gender: 'Female',
+          contact_no: '',
+          teacher_name: 'Ms. Cruz',
+          photo_url: null,
+          teacher_photo_url: null,
+          face_descriptors: [sampleVec],
+          face_enrolled_at: '2026-11-25T10:00:00.000Z',
+          custom_fields: {},
+        },
+      ],
+      attendance: [
+        {
+          student_id: 'st-1',
+          attendance_date: '2026-11-25',
+          status: 'Present',
+          verification_method: 'face_kiosk',
+          match_confidence: 0.91,
+        },
+      ],
+      evaluations: [],
+      scores: [],
+    });
+
+    const st = assembled[0].specializations[0].students[0];
+    expect(st.faceDescriptors).toEqual([sampleVec]);
+    expect(st.faceEnrolledAt).toBe('2026-11-25T10:00:00.000Z');
+    expect(st.attendance['2026-11-25']).toBe('Present');
+    expect(st.attendanceMeta?.['2026-11-25']).toEqual({
+      method: 'face_kiosk',
+      confidence: 0.91,
+    });
+  });
+
+  it('persists face_kiosk attendance metadata, falls back cleanly on pre-008 schemas, and enrolls face descriptors', async () => {
+    mockAttendanceUpsert.mockResolvedValue({ error: null });
+    mockStudentsUpdate.mockResolvedValue({ error: null });
+
+    await dbSetAttendance(adminActor, 'sch-1', 'st-1', '2026-11-25', 'Present', {
+      method: 'face_kiosk',
+      confidence: 0.91234,
+    });
+
+    expect(mockAttendanceUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        student_id: 'st-1',
+        school_id: 'sch-1',
+        attendance_date: '2026-11-25',
+        status: 'Present',
+        verification_method: 'face_kiosk',
+        match_confidence: 0.9123,
+      }),
+      { onConflict: 'student_id,attendance_date' }
+    );
+
+    mockAttendanceUpsert
+      .mockResolvedValueOnce({
+        error: { message: 'column "verification_method" of relation "attendance_logs" does not exist' },
+      })
+      .mockResolvedValueOnce({ error: null });
+
+    await dbSetAttendance(adminActor, 'sch-1', 'st-1', '2026-11-25', 'Present', {
+      method: 'face_kiosk',
+      confidence: 0.88,
+    });
+
+    expect(mockAttendanceUpsert).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ verification_method: 'face_kiosk' }),
+      { onConflict: 'student_id,attendance_date' }
+    );
+
+    const descriptors = [new Array(1024).fill(0.25)];
+    await dbUpdateStudentFaceDescriptors(adminActor, 'sch-1', 'st-1', descriptors);
+
+    expect(mockStudentsUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        face_descriptors: descriptors,
+        face_enrolled_at: expect.any(String),
+      })
+    );
+    expect(mockAuditInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ENROLL_STUDENT_FACE',
+        entity_id: 'st-1',
+        metadata: { sampleCount: 1 },
+      })
+    );
   });
 });

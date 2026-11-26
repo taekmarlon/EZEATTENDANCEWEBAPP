@@ -11,6 +11,7 @@ import {
   School,
   RubricEvaluation,
   AttendanceStatus,
+  AttendanceVerificationMeta,
   StudentProfileInput,
   QueryPreset,
   SystemSettings,
@@ -48,6 +49,7 @@ import {
   dbUpdateManagedUserAccess,
   dbUpdateSchool,
   dbUpdateSpecializationTeacher,
+  dbUpdateStudentFaceDescriptors,
   dbUpdateSystemSettings,
   dbUpsertStudent,
   fetchWorkspaceSnapshot,
@@ -83,12 +85,19 @@ interface StoreContextType {
     studentId: string,
     profile: StudentProfileInput
   ) => void;
+  updateStudentFaceDescriptors: (
+    schoolId: string,
+    specId: string,
+    studentId: string,
+    descriptors: number[][]
+  ) => void;
   updateAttendance: (
     schoolId: string,
     specId: string,
     studentId: string,
     date: string,
-    status: AttendanceStatus | null
+    status: AttendanceStatus | null,
+    meta?: AttendanceVerificationMeta
   ) => void;
   addRubricCriterion: (schoolId: string, specId: string, name: string) => void;
   deleteRubricCriterion: (schoolId: string, specId: string, criterionId: string) => void;
@@ -407,6 +416,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     teacherName: studentInput.teacherName.trim() || sp.teacherName || '',
                     photo: studentInput.photo || undefined,
                     teacherPhoto: studentInput.teacherPhoto || undefined,
+                    faceDescriptors:
+                      studentInput.faceDescriptors && studentInput.faceDescriptors.length > 0
+                        ? studentInput.faceDescriptors
+                        : undefined,
+                    faceEnrolledAt:
+                      studentInput.faceDescriptors && studentInput.faceDescriptors.length > 0
+                        ? new Date().toISOString()
+                        : undefined,
                     customFields: studentInput.customFields,
                     attendance: {},
                     evaluations: [],
@@ -531,6 +548,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                                 teacherName: studentInput.teacherName.trim(),
                                 photo: studentInput.photo || undefined,
                                 teacherPhoto: studentInput.teacherPhoto || undefined,
+                                faceDescriptors:
+                                  studentInput.faceDescriptors !== undefined
+                                    ? studentInput.faceDescriptors.length > 0
+                                      ? studentInput.faceDescriptors
+                                      : undefined
+                                    : st.faceDescriptors,
+                                faceEnrolledAt:
+                                  studentInput.faceDescriptors !== undefined
+                                    ? studentInput.faceDescriptors.length > 0
+                                      ? st.faceEnrolledAt || new Date().toISOString()
+                                      : undefined
+                                    : st.faceEnrolledAt,
                                 customFields: studentInput.customFields,
                               }
                             : st
@@ -550,13 +579,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [profile, runDbMutation]
   );
 
+  const updateStudentFaceDescriptors = useCallback(
+    (schoolId: string, specId: string, studentId: string, descriptors: number[][]) => {
+      const enrolledAt = descriptors.length > 0 ? new Date().toISOString() : undefined;
+      setRawSchools((prev) =>
+        prev.map((s) =>
+          s.id !== schoolId
+            ? s
+            : {
+                ...s,
+                specializations: s.specializations.map((sp) =>
+                  sp.id !== specId
+                    ? sp
+                    : {
+                        ...sp,
+                        students: sp.students.map((st) =>
+                          st.id === studentId
+                            ? {
+                                ...st,
+                                faceDescriptors: descriptors.length > 0 ? descriptors : undefined,
+                                faceEnrolledAt: enrolledAt,
+                              }
+                            : st
+                        ),
+                      }
+                ),
+              }
+        )
+      );
+      if (profile) {
+        void runDbMutation(
+          () => dbUpdateStudentFaceDescriptors(profile, schoolId, studentId, descriptors),
+          'Could not save face enrollment to Supabase.'
+        );
+      }
+    },
+    [profile, runDbMutation]
+  );
+
   const updateAttendance = useCallback(
     (
       schoolId: string,
       specId: string,
       studentId: string,
       date: string,
-      status: AttendanceStatus | null
+      status: AttendanceStatus | null,
+      meta?: AttendanceVerificationMeta
     ) => {
       setRawSchools((prev) =>
         prev.map((s) =>
@@ -572,9 +640,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                         students: sp.students.map((st) => {
                           if (st.id !== studentId) return st;
                           const next = { ...st.attendance };
-                          if (status === null) delete next[date];
-                          else next[date] = status;
-                          return { ...st, attendance: next };
+                          const nextMeta = { ...(st.attendanceMeta || {}) };
+                          if (status === null) {
+                            delete next[date];
+                            delete nextMeta[date];
+                          } else {
+                            next[date] = status;
+                            if (meta) {
+                              nextMeta[date] = meta;
+                            } else {
+                              delete nextMeta[date];
+                            }
+                          }
+                          return {
+                            ...st,
+                            attendance: next,
+                            attendanceMeta:
+                              Object.keys(nextMeta).length > 0 ? nextMeta : undefined,
+                          };
                         }),
                       }
                 ),
@@ -583,7 +666,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
       if (profile) {
         void runDbMutation(
-          () => dbSetAttendance(profile, schoolId, studentId, date, status),
+          () => dbSetAttendance(profile, schoolId, studentId, date, status, meta),
           'Could not save attendance to Supabase.'
         );
       }
@@ -850,6 +933,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addStudentsBulk,
         deleteStudent,
         updateStudent,
+        updateStudentFaceDescriptors,
         updateAttendance,
         addRubricCriterion,
         deleteRubricCriterion,
