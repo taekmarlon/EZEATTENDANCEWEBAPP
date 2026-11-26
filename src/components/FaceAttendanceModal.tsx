@@ -22,6 +22,8 @@ import { DEFAULT_FACE_RECOGNITION_SETTINGS } from '../services/permissions';
 import {
   analyzeVideoFrameForAttendance,
   getFaceEngine,
+  hasLegacyFaceEnrollment,
+  isCompatibleFaceDescriptor,
   playCheckinSuccessTone,
 } from '../services/faceRecognition';
 import { ensureCameraPermission } from '../utils/cameraPermission';
@@ -44,6 +46,8 @@ interface ScanLogItem {
   alreadyMarked: boolean;
 }
 
+const REQUIRED_MATCH_STREAK = 3;
+
 export default function FaceAttendanceModal({
   isOpen,
   school,
@@ -61,9 +65,9 @@ export default function FaceAttendanceModal({
   const [soundEnabled, setSoundEnabled] = useState(settings.soundEnabled);
 
   const [statusKind, setStatusKind] = useState<
-    'loading' | 'ready' | 'matched' | 'spoof' | 'blink' | 'ambiguous' | 'error'
+    'loading' | 'ready' | 'quality' | 'verifying' | 'matched' | 'spoof' | 'blink' | 'ambiguous' | 'error'
   >('loading');
-  const [statusMessage, setStatusMessage] = useState('Loading on-device AI face models...');
+  const [statusMessage, setStatusMessage] = useState('Loading high-precision MobileFaceNet models...');
   const [backendLabel, setBackendLabel] = useState('');
   const [recentScans, setRecentScans] = useState<ScanLogItem[]>([]);
   const [lastMatchedBanner, setLastMatchedBanner] = useState<ScanLogItem | null>(null);
@@ -71,28 +75,34 @@ export default function FaceAttendanceModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cooldownMapRef = useRef<Map<string, number>>(new Map());
+  const matchStreakRef = useRef<{ studentId: string; count: number; sumConfidence: number } | null>(
+    null
+  );
   const blinkConfirmedRef = useRef<boolean>(false);
   const isDetectingRef = useRef<boolean>(false);
 
-  const candidateEntries = useMemo(() => {
+  const { candidateEntries, legacyEnrolledCount } = useMemo(() => {
     const entries: { specId: string; specName: string; student: Student }[] = [];
-    if (scanScope === 'class') {
-      for (const st of spec.students) {
-        if (st.faceDescriptors && st.faceDescriptors.length > 0) {
-          entries.push({ specId: spec.id, specName: spec.name, student: st });
+    let legacyCount = 0;
+    const inspectSpec = (sp: Specialization) => {
+      for (const st of sp.students) {
+        if (st.faceDescriptors?.some(isCompatibleFaceDescriptor)) {
+          entries.push({ specId: sp.id, specName: sp.name, student: st });
+        } else if (hasLegacyFaceEnrollment(st.faceDescriptors)) {
+          legacyCount++;
         }
       }
+    };
+
+    if (scanScope === 'class') {
+      inspectSpec(spec);
     } else {
       for (const sp of school.specializations) {
-        for (const st of sp.students) {
-          if (st.faceDescriptors && st.faceDescriptors.length > 0) {
-            entries.push({ specId: sp.id, specName: sp.name, student: st });
-          }
-        }
+        inspectSpec(sp);
       }
     }
-    return entries;
-  }, [scanScope, school.specializations, spec.id, spec.name, spec.students]);
+    return { candidateEntries: entries, legacyEnrolledCount: legacyCount };
+  }, [scanScope, school.specializations, spec]);
 
   const candidateStudents = useMemo(
     () => candidateEntries.map((e) => e.student),
@@ -133,7 +143,7 @@ export default function FaceAttendanceModal({
 
     const init = async () => {
       setStatusKind('loading');
-      setStatusMessage('Initializing on-device face recognition models (~10 MB)...');
+      setStatusMessage('Initializing HD MobileFaceNet + Full-Range Face AI (~9 MB)...');
 
       try {
         const perm = await ensureCameraPermission();
@@ -146,8 +156,8 @@ export default function FaceAttendanceModal({
           navigator.mediaDevices.getUserMedia({
             video: {
               facingMode,
-              width: { ideal: 480 },
-              height: { ideal: 360 },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
             },
             audio: false,
           }),
@@ -169,8 +179,8 @@ export default function FaceAttendanceModal({
         setStatusKind('ready');
         setStatusMessage(
           candidateStudentsRef.current.length === 0
-            ? 'No students in this scope have enrolled Face IDs yet.'
-            : 'Camera active — look directly at the frame to log Present.'
+            ? 'No students in this scope have HD MobileFaceNet Face IDs enrolled yet.'
+            : 'Camera active — position face ~0.4m–1.1m straight ahead.'
         );
 
         scanTimer = window.setInterval(async () => {
@@ -191,8 +201,9 @@ export default function FaceAttendanceModal({
 
             if (!evalRes.hasFace) {
               blinkConfirmedRef.current = false;
+              matchStreakRef.current = null;
               setStatusKind('ready');
-              setStatusMessage('Position student face inside the oval guide...');
+              setStatusMessage('Position student face inside the oval guide (0.4m – 1.1m)...');
               return;
             }
 
@@ -200,7 +211,17 @@ export default function FaceAttendanceModal({
               blinkConfirmedRef.current = true;
             }
 
+            if (evalRes.qualityStatus && evalRes.qualityStatus !== 'ok') {
+              matchStreakRef.current = null;
+              setStatusKind('quality');
+              setStatusMessage(
+                evalRes.qualityMessage || 'Move closer and look straight at the camera.'
+              );
+              return;
+            }
+
             if (evalRes.livenessStatus === 'spoof_rejected') {
+              matchStreakRef.current = null;
               setStatusKind('spoof');
               setStatusMessage(
                 'Photo / screen spoofing suspected. Present a live face in good lighting.'
@@ -209,6 +230,7 @@ export default function FaceAttendanceModal({
             }
 
             if (evalRes.livenessStatus === 'blink_required') {
+              matchStreakRef.current = null;
               setStatusKind('blink');
               setStatusMessage('Liveness check: blink once slowly to confirm check-in.');
               return;
@@ -218,8 +240,9 @@ export default function FaceAttendanceModal({
             if (!match) return;
 
             if (match.ambiguous) {
+              matchStreakRef.current = null;
               setStatusKind('ambiguous');
-              setStatusMessage('Multiple close face matches detected — step closer to camera.');
+              setStatusMessage('Multiple close face matches detected — step closer and hold still.');
               return;
             }
 
@@ -235,9 +258,9 @@ export default function FaceAttendanceModal({
               const cooldownMs = Math.max(5, settings.cooldownSeconds) * 1000;
               const prevTime = cooldownMapRef.current.get(matchedStudent.id) || 0;
 
-              blinkConfirmedRef.current = false;
-
               if (nowMs - prevTime < cooldownMs) {
+                matchStreakRef.current = null;
+                blinkConfirmedRef.current = false;
                 setStatusKind('matched');
                 setStatusMessage(
                   `Verified ${matchedStudent.name} (${Math.round(match.confidence * 100)}%)`
@@ -245,13 +268,42 @@ export default function FaceAttendanceModal({
                 return;
               }
 
+              // Multi-frame consecutive agreement (3 frames) prevents single-frame false positives
+              const prevStreak = matchStreakRef.current;
+              const nextCount =
+                prevStreak && prevStreak.studentId === matchedStudent.id
+                  ? prevStreak.count + 1
+                  : 1;
+              const nextSum =
+                prevStreak && prevStreak.studentId === matchedStudent.id
+                  ? prevStreak.sumConfidence + match.confidence
+                  : match.confidence;
+
+              matchStreakRef.current = {
+                studentId: matchedStudent.id,
+                count: nextCount,
+                sumConfidence: nextSum,
+              };
+
+              if (nextCount < REQUIRED_MATCH_STREAK) {
+                setStatusKind('verifying');
+                setStatusMessage(
+                  `Verifying ${matchedStudent.name}... (${nextCount}/${REQUIRED_MATCH_STREAK})`
+                );
+                return;
+              }
+
+              const avgConfidence = Math.round((nextSum / nextCount) * 1000) / 1000;
+              matchStreakRef.current = null;
+              blinkConfirmedRef.current = false;
               cooldownMapRef.current.set(matchedStudent.id, nowMs);
+
               const todayStr = format(new Date(), 'yyyy-MM-dd');
               const alreadyMarked = matchedStudent.attendance?.[todayStr] === 'Present';
 
               updateAttendance(school.id, targetSpecId, matchedStudent.id, todayStr, 'Present', {
                 method: 'face_kiosk',
-                confidence: match.confidence,
+                confidence: avgConfidence,
               });
 
               if (soundEnabledRef.current) {
@@ -263,7 +315,7 @@ export default function FaceAttendanceModal({
                 studentName: matchedStudent.name,
                 specName: targetSpecName,
                 photo: matchedStudent.photo,
-                confidence: Math.round(match.confidence * 100),
+                confidence: Math.round(avgConfidence * 100),
                 timeLabel: format(new Date(), 'h:mm:ss a'),
                 alreadyMarked,
               };
@@ -282,18 +334,20 @@ export default function FaceAttendanceModal({
                   : `Face Check-In: ${matchedStudent.name} marked Present (${logItem.confidence}%).`
               );
             } else {
+              matchStreakRef.current = null;
               setStatusKind('ready');
-              setStatusMessage('Face detected — scanning enrolled roster...');
+              setStatusMessage('Face detected — not matched yet (ensure closer lighting)...');
             }
           } catch (err) {
             if (!cancelled) {
+              matchStreakRef.current = null;
               setStatusKind('error');
               setStatusMessage(err instanceof Error ? err.message : 'Face scan failed.');
             }
           } finally {
             isDetectingRef.current = false;
           }
-        }, 250);
+        }, 200);
       } catch (err) {
         if (!cancelled) {
           setStatusKind('error');
@@ -315,9 +369,11 @@ export default function FaceAttendanceModal({
   const ringClass =
     statusKind === 'matched'
       ? 'border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.45)]'
+      : statusKind === 'verifying'
+      ? 'border-sky-400 shadow-[0_0_22px_rgba(56,189,248,0.45)]'
       : statusKind === 'spoof' || statusKind === 'error'
       ? 'border-rose-400 shadow-[0_0_20px_rgba(251,113,133,0.4)]'
-      : statusKind === 'blink' || statusKind === 'ambiguous'
+      : statusKind === 'blink' || statusKind === 'ambiguous' || statusKind === 'quality'
       ? 'border-amber-300 shadow-[0_0_20px_rgba(252,211,77,0.35)]'
       : 'border-violet-300/80';
 
@@ -495,8 +551,10 @@ export default function FaceAttendanceModal({
               className={`px-4 py-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
                 statusKind === 'spoof' || statusKind === 'error'
                   ? 'bg-rose-50 border-rose-200 text-rose-800'
-                  : statusKind === 'blink' || statusKind === 'ambiguous'
+                  : statusKind === 'blink' || statusKind === 'ambiguous' || statusKind === 'quality'
                   ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : statusKind === 'verifying'
+                  ? 'bg-sky-50 border-sky-200 text-sky-800'
                   : statusKind === 'matched'
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : 'bg-white border-slate-200 text-slate-700'
@@ -528,6 +586,13 @@ export default function FaceAttendanceModal({
                 {format(new Date(), 'MMM d')}
               </span>
             </div>
+
+            {legacyEnrolledCount > 0 && (
+              <div className="m-3 mb-0 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                <strong>{legacyEnrolledCount} student(s)</strong> need one-time HD re-enrollment in
+                their student profile to upgrade from legacy FaceRes to MobileFaceNet.
+              </div>
+            )}
 
             {candidateStudents.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-500 space-y-2 my-auto">

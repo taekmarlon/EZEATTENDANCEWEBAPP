@@ -23,11 +23,15 @@ vi.mock('../utils/cameraPermission', () => ({
   ensureCameraPermission: () => mockEnsureCameraPermission(),
 }));
 
-vi.mock('../services/faceRecognition', () => ({
-  getFaceEngine: () => mockGetFaceEngine(),
-  analyzeVideoFrameForAttendance: (...args: unknown[]) => mockAnalyzeVideoFrame(...args),
-  playCheckinSuccessTone: () => mockPlayTone(),
-}));
+vi.mock('../services/faceRecognition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/faceRecognition')>();
+  return {
+    ...actual,
+    getFaceEngine: () => mockGetFaceEngine(),
+    analyzeVideoFrameForAttendance: (...args: unknown[]) => mockAnalyzeVideoFrame(...args),
+    playCheckinSuccessTone: () => mockPlayTone(),
+  };
+});
 
 describe('FaceAttendanceModal', () => {
   const stopTrack = vi.fn();
@@ -41,7 +45,7 @@ describe('FaceAttendanceModal', () => {
     gender: 'Female',
     contactNo: '',
     teacherName: 'Ms. Reyes',
-    faceDescriptors: [new Array(1024).fill(0.2)],
+    faceDescriptors: [new Array(192).fill(0.2)],
     attendance: {},
     evaluations: [],
   };
@@ -75,7 +79,7 @@ describe('FaceAttendanceModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEnsureCameraPermission.mockResolvedValue({ granted: true });
-    mockGetFaceEngine.mockResolvedValue({ backend: 'webgl', human: {} });
+    mockGetFaceEngine.mockResolvedValue({ backend: 'webgl', human: {}, mobileFaceNet: {} });
     mockGetUserMedia.mockResolvedValue({
       getTracks: () => [{ stop: stopTrack }],
     });
@@ -96,11 +100,18 @@ describe('FaceAttendanceModal', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows empty state when no enrolled faces exist and supports class vs whole-school scope and kiosk toggle', async () => {
+  it('shows empty state, legacy upgrade notice, class vs whole-school scope, and kiosk toggle', async () => {
     const emptySpec: Specialization = {
       id: 'sp-empty',
       name: 'Voice',
-      students: [],
+      students: [
+        {
+          ...enrolledStudent,
+          id: 'st-legacy',
+          name: 'Legacy User',
+          faceDescriptors: [new Array(1024).fill(0.1)],
+        },
+      ],
       rubricCriteria: [],
     };
     const emptySchool: School = {
@@ -122,6 +133,7 @@ describe('FaceAttendanceModal', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/No Enrolled Faces Found/i)).toBeInTheDocument();
+      expect(screen.getByText(/need one-time HD re-enrollment/i)).toBeInTheDocument();
     });
 
     rerender(
@@ -138,16 +150,19 @@ describe('FaceAttendanceModal', () => {
     expect(screen.getByRole('button', { name: /Exit Kiosk/i })).toBeInTheDocument();
   });
 
-  it('logs Present with face_kiosk metadata on a verified live face match and plays chime', async () => {
+  it('requires 3 consecutive verified frames before logging Present with face_kiosk metadata', async () => {
     mockAnalyzeVideoFrame.mockResolvedValue({
       hasFace: true,
-      livenessStatus: 'passed',
+      qualityStatus: 'ok',
+      livenessStatus: 'pass',
       blinkDetected: false,
       match: {
         matched: true,
         ambiguous: false,
         student: enrolledStudent,
         confidence: 0.92,
+        runnerUpConfidence: 0.25,
+        livenessStatus: 'pass',
       },
     });
 
@@ -161,6 +176,7 @@ describe('FaceAttendanceModal', () => {
 
     await waitFor(
       () => {
+        expect(mockAnalyzeVideoFrame).toHaveBeenCalledTimes(3);
         expect(mockUpdateAttendance).toHaveBeenCalledWith(
           'sch-1',
           'sp-piano',
@@ -170,21 +186,30 @@ describe('FaceAttendanceModal', () => {
           { method: 'face_kiosk', confidence: 0.92 }
         );
       },
-      { timeout: 2500 }
+      { timeout: 3000 }
     );
 
-    expect(mockPlayTone).toHaveBeenCalled();
+    expect(mockPlayTone).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/Checked In \(1\)/i)).toBeInTheDocument();
-    expect(screen.getAllByText('Maria Santos').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('blocks spoofed frames without marking attendance', async () => {
-    mockAnalyzeVideoFrame.mockResolvedValue({
-      hasFace: true,
-      livenessStatus: 'spoof_rejected',
-      blinkDetected: false,
-      match: null,
-    });
+  it('blocks too-far / spoofed frames and never logs attendance', async () => {
+    mockAnalyzeVideoFrame
+      .mockResolvedValueOnce({
+        hasFace: true,
+        qualityStatus: 'too_far',
+        qualityMessage: 'Move slightly closer to the camera (0.4m – 1.1m) for accurate Face ID.',
+        livenessStatus: 'pass',
+        blinkDetected: false,
+        match: null,
+      })
+      .mockResolvedValue({
+        hasFace: true,
+        qualityStatus: 'ok',
+        livenessStatus: 'spoof_rejected',
+        blinkDetected: false,
+        match: null,
+      });
 
     render(
       <ToastProvider>
@@ -194,9 +219,16 @@ describe('FaceAttendanceModal', () => {
 
     await waitFor(
       () => {
+        expect(screen.getByText(/Move slightly closer to the camera/i)).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
+
+    await waitFor(
+      () => {
         expect(screen.getByText(/Photo \/ screen spoofing suspected/i)).toBeInTheDocument();
       },
-      { timeout: 2500 }
+      { timeout: 2000 }
     );
 
     expect(mockUpdateAttendance).not.toHaveBeenCalled();

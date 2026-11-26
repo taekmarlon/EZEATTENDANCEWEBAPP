@@ -278,7 +278,7 @@ describe('UI bug fixes & school logo features', () => {
           contactNo: '',
           teacherName: 'Ms. Reyes',
           photo: 'data:image/jpeg;base64,portrait',
-          faceDescriptors: [new Array(1024).fill(0.1)],
+          faceDescriptors: [new Array(192).fill(0.1)],
           attendance: { [todayStr]: 'Present' },
           attendanceMeta: { [todayStr]: { method: 'face_kiosk', confidence: 0.94 } },
           evaluations: [],

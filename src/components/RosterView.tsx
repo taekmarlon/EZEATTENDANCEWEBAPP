@@ -20,6 +20,7 @@ import { School, Specialization, Student, StudentProfileInput } from '../types';
 import { useStore } from '../store';
 import { useToast } from '../context/ToastContext';
 import { downloadCSV } from '../utils/export';
+import { hasLegacyFaceEnrollment, isCompatibleFaceDescriptor } from '../services/faceRecognition';
 import ConfirmModal from './ConfirmModal';
 import AttendanceModal from './AttendanceModal';
 import StudentFormModal from './StudentFormModal';
@@ -325,17 +326,29 @@ export default function RosterView({ school, spec }: RosterViewProps) {
                       <h3 className="text-sm font-bold text-slate-900 truncate">
                         {student.name}
                       </h3>
-                      {(student.faceDescriptors?.length || 0) > 0 && (
+                      {student.faceDescriptors?.some(isCompatibleFaceDescriptor) ? (
                         <span
-                          title={`Face ID enrolled (${student.faceDescriptors?.length || 0} sample${
-                            (student.faceDescriptors?.length || 0) === 1 ? '' : 's'
+                          title={`HD Face ID enrolled (${
+                            student.faceDescriptors.filter(isCompatibleFaceDescriptor).length
+                          } sample${
+                            student.faceDescriptors.filter(isCompatibleFaceDescriptor).length === 1
+                              ? ''
+                              : 's'
                           })`}
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700 shrink-0"
                         >
                           <ScanFace size={11} />
                           Face ID
                         </span>
-                      )}
+                      ) : hasLegacyFaceEnrollment(student.faceDescriptors) ? (
+                        <span
+                          title="Legacy Face ID detected — edit student profile and re-enroll in HD MobileFaceNet"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-semibold text-amber-800 shrink-0"
+                        >
+                          <ScanFace size={11} />
+                          Re-enroll Face
+                        </span>
+                      ) : null}
                       {student.attendance[todayStr] === 'Present' &&
                         student.attendanceMeta?.[todayStr]?.method === 'face_kiosk' && (
                           <span

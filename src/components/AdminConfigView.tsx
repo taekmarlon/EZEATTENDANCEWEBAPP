@@ -1242,8 +1242,9 @@ export default function AdminConfigView() {
                       Face Recognition Attendance &amp; Anti-Spoofing
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Runs 100% on-device (offline WebGL/CPU) across Android APK, Web, and iOS PWA
-                      with zero per-scan API fees.
+                      Runs 100% on-device using 5-point aligned MobileFaceNet HD (192-d ArcFace
+                      embeddings) + full-range detector + 3-frame confirmation across Android, Web,
+                      and iOS PWA.
                     </p>
                   </div>
                 </div>

@@ -10,7 +10,11 @@ import {
   SwitchCamera,
   X,
 } from 'lucide-react';
-import { extractFaceDescriptorFromInput } from '../services/faceRecognition';
+import {
+  extractFaceDescriptorFromInput,
+  hasLegacyFaceEnrollment,
+  isCompatibleFaceDescriptor,
+} from '../services/faceRecognition';
 import { ensureCameraPermission } from '../utils/cameraPermission';
 import { useToast } from '../context/ToastContext';
 
@@ -69,8 +73,8 @@ export default function FaceEnrollmentControl({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode,
-            width: { ideal: 480 },
-            height: { ideal: 360 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
           audio: false,
         });
@@ -102,9 +106,12 @@ export default function FaceEnrollmentControl({
     };
   }, [cameraOpen, facingMode]);
 
+  const compatibleDescriptors = descriptors.filter(isCompatibleFaceDescriptor);
+  const legacyOnly = compatibleDescriptors.length === 0 && hasLegacyFaceEnrollment(descriptors);
+
   const handleCaptureLiveSample = async () => {
     if (!videoRef.current || isCapturing) return;
-    if (descriptors.length >= MAX_SAMPLES) {
+    if (compatibleDescriptors.length >= MAX_SAMPLES) {
       showToast('Maximum of 3 face angle samples reached. Reset to re-enroll.', 'info');
       return;
     }
@@ -116,9 +123,11 @@ export default function FaceEnrollmentControl({
       if (typeof extracted.realScore === 'number' && extracted.realScore < 0.4) {
         throw new Error('Could not verify live face quality. Avoid glare or screen reflections.');
       }
-      const next = [...descriptors, extracted.descriptor].slice(0, MAX_SAMPLES);
+      const next = [...compatibleDescriptors, extracted.descriptor].slice(0, MAX_SAMPLES);
       onChange(next);
-      showToast(`Captured Face ID sample ${next.length}/${MAX_SAMPLES} for ${studentName || 'student'}.`);
+      showToast(
+        `Captured HD Face ID sample ${next.length}/${MAX_SAMPLES} for ${studentName || 'student'}.`
+      );
       if (next.length >= MAX_SAMPLES) {
         setCameraOpen(false);
       }
@@ -135,9 +144,9 @@ export default function FaceEnrollmentControl({
     setErrorMsg(null);
     try {
       const extracted = await extractFaceDescriptorFromInput(portraitSrc);
-      const next = [...descriptors, extracted.descriptor].slice(0, MAX_SAMPLES);
+      const next = [...compatibleDescriptors, extracted.descriptor].slice(0, MAX_SAMPLES);
       onChange(next);
-      showToast('Enrolled Face ID sample directly from student portrait.');
+      showToast('Enrolled HD Face ID sample directly from student portrait.');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Could not detect face in uploaded portrait.');
     } finally {
@@ -155,9 +164,14 @@ export default function FaceEnrollmentControl({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-900">Face Recognition ID</span>
-              {descriptors.length > 0 ? (
+              {compatibleDescriptors.length > 0 ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  <CheckCircle2 size={10} /> Enrolled ({descriptors.length}/{MAX_SAMPLES} samples)
+                  <CheckCircle2 size={10} /> HD Enrolled ({compatibleDescriptors.length}/{MAX_SAMPLES}{' '}
+                  samples)
+                </span>
+              ) : legacyOnly ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                  Upgrade Required (Legacy ID)
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
@@ -166,12 +180,12 @@ export default function FaceEnrollmentControl({
               )}
             </div>
             <p className="text-[11px] text-slate-500">
-              Capture 1–3 angles on camera so attendance logs automatically in &lt;2 seconds.
+              Capture 1–3 aligned HD angles (0.4m – 1.0m) using MobileFaceNet AI.
             </p>
           </div>
         </div>
 
-        {descriptors.length > 0 && (
+        {(compatibleDescriptors.length > 0 || legacyOnly) && (
           <button
             type="button"
             onClick={() => onChange([])}
@@ -181,6 +195,16 @@ export default function FaceEnrollmentControl({
           </button>
         )}
       </div>
+
+      {legacyOnly && !errorMsg && (
+        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-[11px] text-amber-900">
+          <AlertCircle size={14} className="text-amber-700 shrink-0 mt-0.5" />
+          <span>
+            This student has older FaceRes data. Capture 1–3 fresh HD samples below to upgrade
+            to high-precision MobileFaceNet recognition.
+          </span>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2 text-[11px] text-rose-800">
@@ -193,17 +217,19 @@ export default function FaceEnrollmentControl({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={isCapturing || descriptors.length >= MAX_SAMPLES}
+            disabled={isCapturing || compatibleDescriptors.length >= MAX_SAMPLES}
             onClick={() => setCameraOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors"
           >
             <Camera size={13} />
-            {descriptors.length > 0
-              ? `Add Camera Angle (${descriptors.length}/${MAX_SAMPLES})`
+            {compatibleDescriptors.length > 0
+              ? `Add Camera Angle (${compatibleDescriptors.length}/${MAX_SAMPLES})`
+              : legacyOnly
+              ? 'Re-Enroll in HD'
               : 'Live Camera Enroll'}
           </button>
 
-          {portraitSrc && descriptors.length < MAX_SAMPLES && (
+          {portraitSrc && compatibleDescriptors.length < MAX_SAMPLES && (
             <button
               type="button"
               disabled={isCapturing}
@@ -227,7 +253,7 @@ export default function FaceEnrollmentControl({
             {isInitializing && (
               <div className="absolute inset-0 bg-slate-950/75 flex flex-col items-center justify-center gap-2 text-xs">
                 <Loader2 size={20} className="animate-spin text-violet-400" />
-                <span>Starting camera...</span>
+                <span>Starting HD camera...</span>
               </div>
             )}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -255,14 +281,14 @@ export default function FaceEnrollmentControl({
 
             <button
               type="button"
-              disabled={isInitializing || isCapturing || descriptors.length >= MAX_SAMPLES}
+              disabled={isInitializing || isCapturing || compatibleDescriptors.length >= MAX_SAMPLES}
               onClick={() => void handleCaptureLiveSample()}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
             >
               {isCapturing ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
               {isCapturing
                 ? 'Analyzing Face...'
-                : `Capture Angle ${descriptors.length + 1}/${MAX_SAMPLES}`}
+                : `Capture Angle ${compatibleDescriptors.length + 1}/${MAX_SAMPLES}`}
             </button>
           </div>
         </div>
