@@ -12,6 +12,8 @@ const targetDir = path.join(rootDir, 'public', 'models');
 
 const HUMAN_PKG_MODEL_FILES = [
   'models.json',
+  'blazeface.json',
+  'blazeface.bin',
   'facemesh.json',
   'facemesh.bin',
   'antispoof.json',
@@ -21,13 +23,16 @@ const HUMAN_PKG_MODEL_FILES = [
 ];
 
 const CUSTOM_ASSET_MODEL_FILES = [
-  'facemesh-detection-full.json',
-  'facemesh-detection-full.bin',
   'mobilefacenet.json',
   'mobilefacenet.bin',
 ];
 
-const DEPRECATED_FILES = ['blazeface.json', 'blazeface.bin', 'faceres.json', 'faceres.bin'];
+const DEPRECATED_FILES = [
+  'facemesh-detection-full.json',
+  'facemesh-detection-full.bin',
+  'faceres.json',
+  'faceres.bin',
+];
 
 if (!fs.existsSync(sourceDir)) {
   console.warn('[sync-face-models] Skipping: @vladmandic/human models not installed yet.');

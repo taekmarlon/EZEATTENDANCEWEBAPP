@@ -380,7 +380,7 @@ export default function FaceAttendanceModal({
   return (
     <div
       className={`no-print fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm ${
-        kioskMode ? 'p-0' : 'p-3 sm:p-5'
+        kioskMode ? 'p-0' : 'p-1.5 sm:p-4'
       }`}
       onClick={() => !kioskMode && onClose()}
     >
@@ -388,7 +388,7 @@ export default function FaceAttendanceModal({
         className={`bg-white flex flex-col overflow-hidden shadow-2xl ${
           kioskMode
             ? 'w-full h-[100dvh] rounded-none'
-            : 'w-full max-w-4xl rounded-2xl border border-slate-200 max-h-[92vh]'
+            : 'w-full max-w-5xl rounded-2xl border border-slate-200 h-[95dvh] sm:h-auto sm:max-h-[94vh]'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -500,7 +500,7 @@ export default function FaceAttendanceModal({
             </div>
 
             {/* Camera Stage */}
-            <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-[4/3] sm:aspect-video flex items-center justify-center border border-slate-300 shadow-sm">
+            <div className="relative rounded-2xl overflow-hidden bg-slate-950 min-h-[46dvh] aspect-[3/4] sm:min-h-[420px] sm:aspect-video flex items-center justify-center border border-slate-300 shadow-sm">
               <video
                 ref={videoRef}
                 muted
@@ -511,7 +511,7 @@ export default function FaceAttendanceModal({
               {/* Face Alignment Guide */}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div
-                  className={`w-44 h-56 sm:w-52 sm:h-64 rounded-full border-4 transition-all duration-200 ${ringClass}`}
+                  className={`w-56 h-72 sm:w-64 sm:h-80 rounded-full border-4 transition-all duration-200 ${ringClass}`}
                 />
               </div>
 

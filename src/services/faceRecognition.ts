@@ -96,12 +96,13 @@ function createHumanConfig(backend: 'webgl' | 'cpu'): Partial<Config> {
       enabled: true,
       detector: {
         enabled: true,
-        modelPath: 'facemesh-detection-full.json',
+        modelPath: 'blazeface.json',
         rotation: true,
         maxDetected: 1,
         skipFrames: 0,
         skipTime: 0,
-        minConfidence: 0.62,
+        minConfidence: 0.45,
+        square: false,
       },
       mesh: {
         enabled: true,
@@ -391,7 +392,7 @@ export function evaluateFaceQuality(
 
   const boxScore = typeof face.boxScore === 'number' ? face.boxScore : face.score ?? 1;
   const faceScore = typeof face.faceScore === 'number' ? face.faceScore : face.score ?? 1;
-  if (boxScore < 0.62 || faceScore < 0.62) {
+  if (boxScore < 0.45 || faceScore < 0.6) {
     return {
       ok: false,
       status: 'low_confidence',
@@ -401,8 +402,8 @@ export function evaluateFaceQuality(
 
   const box = face.box || [0, 0, 0, 0];
   const boxHeight = Math.max(box[2] || 0, box[3] || 0);
-  const minRatio = mode === 'kiosk' ? 0.14 : 0.11;
-  const minPx = mode === 'kiosk' ? 72 : 52;
+  const minRatio = mode === 'kiosk' ? 0.13 : 0.1;
+  const minPx = mode === 'kiosk' ? 68 : 48;
   if (boxHeight < minPx || (frameHeight > 0 && boxHeight / frameHeight < minRatio)) {
     return {
       ok: false,
@@ -604,33 +605,45 @@ async function extractAlignedMobileFaceNetEmbedding(
     throw new Error('Could not align facial geometry. Hold steady and try again.');
   }
 
+  const { w, h } = getSourceDimensions(target);
   const { canvas, ctx } = getAlignmentCanvas();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.setTransform(matrix.a, matrix.b, -matrix.b, matrix.a, matrix.tx, matrix.ty);
-  ctx.drawImage(target, 0, 0);
+  ctx.drawImage(target, 0, 0, w, h);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  // Quick luminance guard on aligned 112x112 face crop
+  // Build [-1, 1] RGB Float32Array directly from aligned 112x112 canvas pixels (avoids tf.browser.fromPixels().toFloat() issues)
   const pixelData = ctx.getImageData(0, 0, ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE).data;
+  const totalPixels = ARCFACE_INPUT_SIZE * ARCFACE_INPUT_SIZE;
+  const floatRgb = new Float32Array(totalPixels * 3);
+  let pIdx = 0;
+  let fIdx = 0;
   let lumaSum = 0;
-  let sampleCount = 0;
-  for (let i = 0; i < pixelData.length; i += 16) {
-    lumaSum += 0.299 * pixelData[i] + 0.587 * pixelData[i + 1] + 0.114 * pixelData[i + 2];
-    sampleCount++;
+  for (let i = 0; i < totalPixels; i++) {
+    const r = pixelData[pIdx++];
+    const g = pixelData[pIdx++];
+    const b = pixelData[pIdx++];
+    pIdx++; // skip alpha
+    lumaSum += 0.299 * r + 0.587 * g + 0.114 * b;
+    floatRgb[fIdx++] = (r - 127.5) * 0.0078125;
+    floatRgb[fIdx++] = (g - 127.5) * 0.0078125;
+    floatRgb[fIdx++] = (b - 127.5) * 0.0078125;
   }
-  const meanLuma = sampleCount > 0 ? lumaSum / sampleCount : 128;
+
+  const meanLuma = lumaSum / totalPixels;
   if (meanLuma < 20 || meanLuma > 246) {
     throw new Error('Face crop lighting is too dark or overexposed. Adjust lighting.');
   }
 
   const { tf } = runtime.human;
-  const inputTensor = tf.tidy(() => {
-    const rgb = tf.browser.fromPixels(canvas).toFloat();
-    return tf.expandDims(rgb, 0).sub(127.5).mul(0.0078125);
-  });
+  const inputTensor = tf.tensor4d(
+    floatRgb,
+    [1, ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, 3],
+    'float32'
+  );
 
   let outputTensor: unknown;
   try {
@@ -756,6 +769,10 @@ export async function extractFaceDescriptorFromInput(
   const target: HTMLVideoElement | HTMLImageElement =
     typeof input === 'string' ? await loadImageForDetection(input) : input;
 
+  if ('videoWidth' in target && (target.readyState < 2 || target.videoWidth === 0)) {
+    throw new Error('Camera feed is still warming up. Wait a moment and tap Capture again.');
+  }
+
   const result = await runtime.human.detect(target);
   if (!result.face || result.face.length === 0) {
     throw new Error('No face detected. Ensure your face is well-lit and centered in frame.');
@@ -772,6 +789,75 @@ export async function extractFaceDescriptorFromInput(
     descriptor,
     realScore: typeof face.real === 'number' ? face.real : undefined,
     liveScore: typeof face.live === 'number' ? face.live : undefined,
+  };
+}
+
+/**
+ * Checks a live enrollment video frame for proper framing, lighting, landmarks, and liveness.
+ * Set `captureEmbedding = true` on consecutive steady frames to extract and return the 192-d descriptor.
+ */
+export async function probeEnrollmentFrame(
+  videoEl: HTMLVideoElement,
+  captureEmbedding = false
+): Promise<{
+  ready: boolean;
+  statusMessage: string;
+  descriptor?: number[];
+  realScore?: number;
+}> {
+  if (videoEl.readyState < 2 || videoEl.videoWidth === 0) {
+    return { ready: false, statusMessage: 'Warming up HD camera feed...' };
+  }
+
+  const runtime = await getFaceEngine();
+  const result = await runtime.human.detect(videoEl);
+  const face = result.face?.[0];
+  if (!face) {
+    return { ready: false, statusMessage: 'Center your face inside the large oval guide...' };
+  }
+
+  const realScore = typeof face.real === 'number' ? face.real : undefined;
+  if (realScore !== undefined && realScore < 0.4) {
+    return {
+      ready: false,
+      realScore,
+      statusMessage: 'Present a live face clearly (avoid screen glare or photos).',
+    };
+  }
+
+  const { w, h } = getSourceDimensions(videoEl);
+  const quality = evaluateFaceQuality(face, w, h, 'enroll');
+  if (!quality.ok) {
+    return {
+      ready: false,
+      realScore,
+      statusMessage: quality.message || 'Move slightly closer and look straight ahead.',
+    };
+  }
+
+  const landmarks = extractFivePointLandmarks(face);
+  if (!landmarks) {
+    return {
+      ready: false,
+      realScore,
+      statusMessage: 'Align both eyes, nose, and mouth clearly inside the oval.',
+    };
+  }
+
+  if (!captureEmbedding) {
+    return {
+      ready: true,
+      realScore,
+      statusMessage: 'Face locked cleanly — hold steady to auto-capture...',
+    };
+  }
+
+  const descriptor = await extractAlignedMobileFaceNetEmbedding(runtime, videoEl, face);
+  return {
+    ready: true,
+    realScore,
+    descriptor,
+    statusMessage: 'Captured Face ID sample cleanly!',
   };
 }
 
